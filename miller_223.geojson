@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"features": [
+{ "type": "Feature", "properties": { "name": "room", "type": "room" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 391.5, 738.8775 ], [ 432.02175, 738.8775 ], [ 432.02175, 787.2465 ], [ 408.2505, 787.2465 ], [ 408.2505, 791.66595 ], [ 391.5, 791.66595 ], [ 391.5, 738.8775 ] ] ] } },
+{ "type": "Feature", "properties": { "name": "heater", "type": "obstacle" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 431.9356, 767.348 ], [ 431.9356, 754.98 ], [ 430.04, 754.98 ], [ 430.04, 767.348 ], [ 431.9356, 767.348 ] ] ] } },
+{ "type": "Feature", "properties": { "name": "desks", "type": "obstacle" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 428.8935, 773.044 ], [ 428.8935, 750.16 ], [ 420.2, 750.16 ], [ 420.2, 773.044 ], [ 428.8935, 773.044 ] ] ] } },
+{ "type": "Feature", "properties": { "name": "bed1", "type": "obstacle" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 402.359, 790.366 ], [ 402.359, 768.58 ], [ 392.05, 768.58 ], [ 392.05, 790.366 ], [ 402.359, 790.366 ] ] ] } },
+{ "type": "Feature", "properties": { "name": "bed2", "type": "obstacle" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 409.77, 787.02 ], [ 409.77, 776.711 ], [ 431.556, 776.711 ], [ 431.556, 787.02 ], [ 409.77, 787.02 ] ] ] } },
+{ "type": "Feature", "properties": { "name": "dressers", "type": "obstacle" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 431.908, 746.2681 ], [ 431.908, 738.88 ], [ 391.64, 738.88 ], [ 391.64, 746.2681 ], [ 431.908, 746.2681 ] ] ] } }
+]
+}
