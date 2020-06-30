@@ -33,6 +33,8 @@ def extract_polygon(input_filepath, output_filepath, contour_accuracy = 5):
                                    cv2.CHAIN_APPROX_SIMPLE)
 
 
+    # Problem 1: this is where we hardcode the solution
+    # We are picking boundary 15 because it is what works on this code
     poly = cv2.approxPolyDP(contours[15], contour_accuracy, True)
     p = poly.reshape(poly.shape[0], poly.shape[2])
     p = np.append(p, [p[0]], axis=0)
