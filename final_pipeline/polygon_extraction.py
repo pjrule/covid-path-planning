@@ -11,7 +11,6 @@ from shapely.affinity import scale
 # Input:
 #   input_png:         str, the filepath to the input png
 #   output_png:        str, a filepath to save a png of the output polygon
-#   units_per_pixel:   float by which to scale the output polygon
 #   contour_accuracy:  float passed to approxPolyDP
 # Return: a shapely Polygon
 def extract_polygon(input_filepath, output_filepath, contour_accuracy = 5):

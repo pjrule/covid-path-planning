@@ -1,35 +1,40 @@
-# Input: filepath to png
-#        Constants (how? separate file? args? eg. method)
-#        Output filepath
+# Main script to solve the UV Light optimization problem
 
-# Pipeline:
-#  1. Room segmentation: get polygon (geojson? probably save two files, geojson and png)
-#  2. Pass polygon to Room constructor
-#  3. Pass Room to lp solver
-#  4. Get output images and txt file from solution
 import pandas as pd
 from room import Room
 from polygon_extraction import extract_polygon
 from lp_solver import solve_full_lp, visualize_times
 
+######################
+###   Parameters   ###
+######################
+
 # I/O Files
 INPUT_FILE = '../floor_plans/gmapping_tenbenham_cropped.png'
 OUTPUT_FILE = '../output/tenbenham_polygon.png'
-OUTPUT_CSV = '../output/tennbenham_waiting_times.csv'
-SOLUTION_FILE = '../output/solution_1.png'
+OUTPUT_CSV = '../output/tenbenham_waiting_times.csv'
 
 # Robot dimensions
 METERS_PER_PIXEL = 0.05 # Constant to determine the correspondence between input pixels and dimensions in real space
                         # HARDCODED. Should read from input file instead
 ROBOT_HEIGHT = 1.2192   # in meters (currently set to 4 feet)
-EPSILON = 0.5           # Tolerance error. XXX What is the unit?
-MIN_INTENSITY = 1       # XXX what is this? What is the unit?
-THETA = 0               # XXX what is this? What is the unit?
+EPSILON = 0.5           # Tolerance error. Units of ROBOT_HEIGHT meters.
+                        #   A smaller epsilon guarantees that we find a
+                        #   solution closer to optimal, assuming infinite speed
+                        #   The right value should be determined experimentally
+MIN_INTENSITY = 1       # Threshold of energy each point in the room must
+                        #   receive, assuming that the UV light emits
+                        #   1/distance_in_pixels^2 units of energy
 
 # Algorithm parameters. See documentation for the different variations
-use_strong_visibility = True
-use_strong_distances = True
-scaling_method = 'none' # must be in {'epsilon', 'branch_and_bound', 'none'}
+use_strong_visibility = False
+use_strong_distances = False
+scaling_method = 'epsilon' # must be in {'epsilon', 'branch_and_bound', 'none'}
+
+
+############################
+###   Compute Solution   ###
+############################
 
 units_per_pixel =  METERS_PER_PIXEL * 1/ROBOT_HEIGHT
 robot_height_pixels = ROBOT_HEIGHT * 1/METERS_PER_PIXEL
@@ -58,9 +63,9 @@ rows = []
 for (x, y), t in zip(room.guard_grid, waiting_times):
     # We drop points that you stop less than a milisecond. HARDCODED
     if t > 1e-3:
-        rows.append({'x': x, 'y': y, 'theta': THETA, 'time': t})
+        rows.append({'x': x, 'y': y, 'time': t})
 pd.DataFrame(rows).to_csv(OUTPUT_CSV, index=False)
 
 # Graphical visualizations of the solution
 print('Visualizing solution')
-visualize_times(room, waiting_times, SOLUTION_FILE)
+visualize_times(room, waiting_times)

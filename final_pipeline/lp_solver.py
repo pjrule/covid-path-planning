@@ -25,24 +25,21 @@ def solve_full_lp(room, robot_height_scaled, use_strong_visibility, use_strong_d
     prob = cp.Problem(obj, constraints=constraints)
     prob.solve(solver='ECOS')
     
-    # Before filtering
     unscaled_time = loc_times.value.sum()
     scale = get_scale(room, loc_times.value, scaling_method)
     solution_time = scale * unscaled_time
 
-
-    # TODO: Filtering significant points
+    # TODO: Filter for significant points
 
     return solution_time, loc_times.value, room_intensities.T
 
-def visualize_times(room, waiting_times, output_filename):
+def visualize_times(room, waiting_times):
     ax = plt.axes()
     ax.axis('equal')
     ax.plot(*room.room.exterior.xy)
 
     ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times)
     plt.show()
-    #plt.savefig(output_filename)
 
 
 def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use_strong_distances = True):
