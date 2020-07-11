@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from shapely.geometry import box, Point, LineString, Polygon, MultiPolygon
 from shapely.affinity import scale
+from shapely.prepared import prep
 from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
-from ortools.constraint_solver import routing_enums_pb2, pywrapcp
 from numpy.linalg import norm
 
 from branch_and_bound import branch_bound_poly
@@ -38,7 +38,7 @@ def visualize_times(room, waiting_times):
     ax.axis('equal')
     ax.plot(*room.room.exterior.xy)
 
-    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times)
+    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times, facecolors = 'none', edgecolors = 'r')
     plt.show()
 
 
@@ -59,7 +59,7 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
             room_intensities[guard_idx, room_idx] = 1/(distance_2d**2 + robot_height_scaled**2)
 
     # Patch up visibility.
-    eps_room = room.room.buffer(EPS)
+    eps_room = prep(room.room.buffer(EPS))
     broken_sightlines_count = 0
     broken_sightlines_list = []
     for room_idx, room_point in enumerate(room.room_grid):

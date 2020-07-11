@@ -7,7 +7,7 @@ from shapely.geometry import box, Point, LineString, Polygon, MultiPolygon
 from shapely.affinity import scale
 from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
-from ortools.constraint_solver import routing_enums_pb2, pywrapcp
+
 
 class Room:
     """Represents the geometries of a room and its guarded region.
