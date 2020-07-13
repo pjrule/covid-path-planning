@@ -4,11 +4,13 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from shapely.geometry import box, Point, LineString, Polygon, MultiPolygon
+import shapely.geometry
 from shapely.affinity import scale
 from shapely.prepared import prep
 from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
 from numpy.linalg import norm
+from skgeom import *
 
 from branch_and_bound import branch_bound_poly
 
@@ -54,7 +56,7 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
                 room_cell = room.room_cells[room_idx]
                 distance_2d = Point(guard_pt).hausdorff_distance(room_cell)
             else:
-                distance_2d = norm(guard_pt - room_pt)
+                distance_2d = norm(guard_pt - room_pt) # TODO: This could be done manually for faster code
 
             room_intensities[guard_idx, room_idx] = 1/(distance_2d**2 + robot_height_scaled**2)
 
@@ -105,3 +107,88 @@ def get_scale(room, waiting_times, scaling_method):
 
     print(scale)
     return scale
+
+#############################
+## Code for naive solution ##
+#############################
+
+# Naive solution:
+#   Place a point near the center of the room and illuminate all parts of the room it can see
+#   Repeat the process for the regions that have not yet been covered
+def solve_naive(room, robot_height_pixels, min_intensity):
+    plt.close()
+
+    covered_regions = None # Multipolygon
+    solution_points = []
+    solution_times = []
+
+    not_covered = room.room
+    time = 0
+
+    while not not_covered.is_empty:
+        # NB: I'm not completely sure how the representative_point() method works,
+        #     but the scikit-geometry code will fail if this ever returns a vertex
+        point = not_covered.representative_point()
+        vis = compute_visibility_polygon(room.room, point).buffer(EPS)
+        to_be_covered = not_covered.intersection(vis)
+
+        not_covered = not_covered.difference(vis)
+
+        max_distance = point.hausdorff_distance(to_be_covered)
+        curr_time = min_intensity * (max_distance**2 + robot_height_pixels**2)
+        time += curr_time
+        solution_points.append(point)
+        solution_times.append(curr_time)
+        #plot_multi(room.room, to_be_covered, solution_points, 'orange')
+        plot_multi(room.room, not_covered, solution_points)
+    
+    print('Total solution time:', time)
+
+    fig, ax = plt.subplots()
+    ax.set_aspect('equal')
+    ax.plot(*room.room.exterior.xy)
+    ax.scatter([pt.x for pt in solution_points], [pt.y for pt in solution_points], s = np.array(solution_times)/10, facecolors = 'none', edgecolors = 'r')
+    plt.show()
+
+    return time, solution_times
+
+# Plot a shapely polygon or multipolygon with matplotlib
+def plot_multi(room_polygon, multi, solution_points, color = 'r'):
+    fig, ax = plt.subplots()
+    ax.set_aspect('equal')
+
+    pointx = [point.x for point in solution_points]
+    pointy = [point.y for point in solution_points]
+    ax.scatter(pointx, pointy)
+    ax.plot(*room_polygon.exterior.xy)
+
+    if multi.is_empty:
+        pass
+    elif multi.geom_type == 'Polygon':
+        ax.plot(*multi.exterior.xy, color = color)
+    elif multi.geom_type == 'MultiPolygon':
+        for poly in multi:
+            ax.plot(*poly.exterior.xy, color = color)
+    plt.show()
+
+# Find the visibility polygon of a point
+# Inputs and output are shapely objects
+# Converts to scikit-geometry to find visibility intersection
+# Note: this is inefficient for repeated calls on the same shapely polygon
+def compute_visibility_polygon(polygon, point):
+    points_list = list(polygon.exterior.coords) # Includes a repeating point at the end
+    xy_segments = [(points_list[i], points_list[i+1]) for i in range(len(points_list) - 1)]
+    segments = [Segment2(Point2(x1, y1), Point2(x2, y2)) for ((x1, y1), (x2, y2)) in xy_segments]
+
+    arr = arrangement.Arrangement()
+    for s in segments:
+        arr.insert(s)
+
+    vs = RotationalSweepVisibility(arr)
+
+    pt = Point2(point.x, point.y)
+    face = arr.find(pt)
+    vx = vs.compute_visibility(pt, face)
+
+    visibility_polygon_points = [(v.curve().point(0).x(), v.curve().point(0).y()) for v in vx.halfedges]
+    return(shapely.geometry.Polygon(visibility_polygon_points))
