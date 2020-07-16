@@ -24,6 +24,11 @@ def solve_full_lp(room, robot_height_scaled, use_strong_visibility, use_strong_d
     ]
     prob = cp.Problem(obj, constraints=constraints)
     prob.solve(solver='ECOS')
+
+    # Report if problem is infeasible
+    if prob.status == 'infeasible':
+        print('ERROR: Problem is infeasible')
+        return None, None, None
     
     unscaled_time = loc_times.value.sum()
     scale = get_scale(room, loc_times.value, scaling_method)
@@ -37,8 +42,9 @@ def visualize_times(room, waiting_times):
     ax = plt.axes()
     ax.axis('equal')
     ax.plot(*room.room.exterior.xy)
+    ax.plot(*room.guard.exterior.xy)
 
-    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times)
+    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times, facecolors = 'r', edgecolors = 'r')
     plt.show()
 
 

@@ -18,14 +18,12 @@ class Room:
 
     TODO: input geojson instead of polygon (ie. revert to the working code)
     """
-    def __init__(self, polygon, units_per_pixel = 0.0410105, room_eps=0.5, guard_eps=0.5, guard_scale = 1):
-        self.guard_scale = guard_scale
+    def __init__(self, polygon, units_per_pixel = 0.0410105, robot_buffer_pixels = 0, room_eps=0.5, guard_eps=0.5):
         self.units_per_pixel = units_per_pixel
         self.room_eps = room_eps
         self.guard_eps = guard_eps
         self.room = polygon
-        self.guard = box(*(scale(self.room, guard_scale, guard_scale).bounds))
-        self.guard = self.guard.intersection(self.room)
+        self.guard = self.room.buffer(-robot_buffer_pixels)
         self.room_grid, self.room_cells = self._grid(self.room, room_eps)
         self.guard_grid, self.guard_cells = self._grid(self.guard, guard_eps)
         
