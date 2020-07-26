@@ -19,6 +19,8 @@ OUTPUT_CSV = '../output/tenbenham_waiting_times.csv'
 METERS_PER_PIXEL = 0.05 # Constant to determine the correspondence between input pixels and dimensions in real space
                         # HARDCODED. Should read from input file instead
 ROBOT_HEIGHT = 1.2192   # in meters (currently set to 4 feet)
+ROBOT_BUFFER = 0.48     # "Radius" of the robot, in meters
+                        #   The center of the robot will stay at least ROBOT_BUFFER meters from walls
 EPSILON = 0.4           # Tolerance error. Units of ROBOT_HEIGHT meters.
                         #   A smaller epsilon guarantees that we find a
                         #   solution closer to optimal, assuming infinite speed
@@ -40,17 +42,17 @@ scaling_method = 'none' # must be in {'epsilon', 'branch_and_bound', 'none'}
 
 units_per_pixel =  METERS_PER_PIXEL * 1/ROBOT_HEIGHT
 robot_height_pixels = ROBOT_HEIGHT * 1/METERS_PER_PIXEL
+robot_buffer_pixels = ROBOT_BUFFER * 1/METERS_PER_PIXEL
 print('Scaled robot height', robot_height_pixels)
 
 # Step 1: read input file (pixel-like image) and transform it to a simple polygon (with clearly marked in/out)
 print('Extracting polygon')
-#polygon = extract_polygon(INPUT_FILE, OUTPUT_FILE)
-polygon  = box(minx = 0, miny = 0, maxx = 100, maxy = 100)
+polygon = extract_polygon(INPUT_FILE, OUTPUT_FILE)
 
 # Step 2: a Room object contains not only the boundary, but creates a discretized list of places
 #         for the robot to guard (and list of places where the robot can actually move to)
 print('Creating room')
-room = Room(polygon, units_per_pixel, room_eps = EPSILON, guard_eps = EPSILON, guard_scale = 1)
+room = Room(polygon, units_per_pixel, robot_buffer_pixels = robot_buffer_pixels, room_eps = EPSILON, guard_eps = EPSILON)
 
 if naive_solution:
     solve_naive(room, robot_height_pixels, MIN_INTENSITY)

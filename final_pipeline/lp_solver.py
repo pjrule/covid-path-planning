@@ -11,6 +11,7 @@ from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
 from numpy.linalg import norm
 from skgeom import *
+from sys import exit
 
 from branch_and_bound import branch_bound_poly
 
@@ -26,6 +27,10 @@ def solve_full_lp(room, robot_height_scaled, use_strong_visibility, use_strong_d
     ]
     prob = cp.Problem(obj, constraints=constraints)
     prob.solve(solver='ECOS')
+
+    # Report if problem is infeasible
+    if prob.status == 'infeasible':
+        exit('ERROR: Problem is infeasible')
     
     unscaled_time = loc_times.value.sum()
     scale = get_scale(room, loc_times.value, scaling_method)
@@ -39,8 +44,9 @@ def visualize_times(room, waiting_times):
     ax = plt.axes()
     ax.axis('equal')
     ax.plot(*room.room.exterior.xy)
+    ax.plot(*room.guard.exterior.xy)
 
-    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times, facecolors = 'none', edgecolors = 'r')
+    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
     plt.show()
 
 
