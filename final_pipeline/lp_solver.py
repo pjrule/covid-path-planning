@@ -7,6 +7,7 @@ from shapely.geometry import box, Point, LineString, Polygon, MultiPolygon
 import shapely.geometry
 from shapely.affinity import scale
 from shapely.prepared import prep
+from shapely.ops import nearest_points
 from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
 from numpy.linalg import norm
@@ -17,8 +18,8 @@ from branch_and_bound import branch_bound_poly
 
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
-def solve_full_lp(room, robot_height_scaled, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
-    room_intensities = get_intensities(room, robot_height_scaled, use_strong_visibility, use_strong_distances)
+def solve_full_lp(room, robot_height_scaled, robot_radius_scaled, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
+    room_intensities = get_intensities(room, robot_height_scaled, robot_radius_scaled, use_strong_visibility, use_strong_distances)
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
     constraints = [
@@ -40,33 +41,113 @@ def solve_full_lp(room, robot_height_scaled, use_strong_visibility, use_strong_d
 
     return solution_time, loc_times.value, room_intensities.T
 
-def visualize_times(room, waiting_times):
+def visualize_times(room, waiting_times, plot_point = None):
     ax = plt.axes()
     ax.axis('equal')
     ax.plot(*room.room.exterior.xy)
     ax.plot(*room.guard.exterior.xy)
 
+    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = 5, facecolors = 'r', alpha = 0.5)
+    ax.scatter(room.room_grid[:,0], room.room_grid[:,1], s = 5, facecolors = 'black', alpha = 0.5)
+
     ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
+
+    for cell in room.room_cells:
+        ax.plot(*cell.exterior.xy, color = 'black', alpha = 0.5)
+
+    if plot_point is not None:
+        ax.scatter(plot_point[0], plot_point[1], s = 10, facecolors = 'orange')
+
     plt.show()
 
 
-def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use_strong_distances = True):
-    # Construct initial intensities matrix, ignoring visibility
+def get_intensities(room, robot_height_scaled, robot_radius_scaled, use_strong_visibility = True, use_strong_distances = True):
+    # 1. Make sure that every room region can be seen from somewhere in the guard grid
+    eps_room = room.room.buffer(EPS)
+    eps_room_prepared = prep(eps_room)
+    guard_region = room.room.buffer(-robot_radius_scaled)
+
+    total_added = 0
+    for room_idx, room_pt in enumerate(room.room_grid):
+        none_visible = True
+        for guard_idx, guard_point in enumerate(room.guard_grid):
+            if use_strong_visibility:
+                # If a point can see all vertices of a simple polygon,
+                # then it can see the entire polygon
+                room_cell = room.room_cells[room_idx]
+                room_cell_points = list(room_cell.exterior.coords) 
+                sightlines = [LineString([pt, guard_point]) for pt in room_cell_points]
+                is_visible = all([eps_room_prepared.contains(line) for line in sightlines])
+                is_visible = is_visible & (Point(guard_point).distance(room_cell) >= robot_radius_scaled)
+            else:
+                sight = LineString([guard_point, room_point])
+                is_visible = eps_room_prepared.contains(sight)
+            if is_visible:
+                none_visible = False
+                break
+        if none_visible:
+            print("Adding point that can see room point", room_pt)
+            if use_strong_visibility:
+                room_cell = room.room_cells[room_idx]
+                room_cell_points = list(room_cell.exterior.coords)
+                visibility_polygons = [compute_visibility_polygon(eps_room, Point(point)) for point in room_cell_points]
+                # Check 1 pixel farther away than necessary to avoid approximation errors with buffer(). TODO make this more robust
+                shadow_polygons = [Point(point).buffer(robot_radius_scaled + 1) for point in room_cell_points] 
+                result = visibility_polygons[0]
+                for i in range(1, len(visibility_polygons)):
+                    result = result.intersection(visibility_polygons[i])
+                for i in range(0, len(shadow_polygons)):
+                    result = result.difference(shadow_polygons[i])
+                result = result.intersection(guard_region)
+                
+                try:
+                    point_to_add_shapely, _ = nearest_points(result, Point(room_pt))
+                    point_to_add = np.array([point_to_add_shapely.x, point_to_add_shapely.y])
+                except Exception as e:
+                    if str(e) == 'The first input geometry is empty':
+                        print('ERROR: Problem is infeasible.')
+                        print('       No point in the guard region can see', room_pt)
+                        exit()
+                    else:
+                        raise e
+                
+                
+
+                print("Adding point", point_to_add)
+                room.guard_grid = np.append(room.guard_grid, [point_to_add], axis = 0)
+                room.guard_cells = np.append(room.guard_cells, None) # TODO: Check that room.guard_cells is not used anywhere...
+                total_added += 1
+            else:
+                # TODO: adapt this to work with non-strong visibility
+                ...
+
+    print("Added", total_added, "points to make problem feasible")
+    
+    # 2. Construct initial intensities matrix, ignoring visibility
     num_guard_points = room.guard_grid.shape[0]
     num_room_points = room.room_grid.shape[0]
     room_intensities = np.zeros(shape = (num_guard_points, num_room_points))
 
     for guard_idx, guard_pt in enumerate(room.guard_grid):
+        if guard_idx % 50 == 0: print("Getting intensity for point: ", guard_idx)
         for room_idx, room_pt in enumerate(room.room_grid):
             if use_strong_distances:
                 room_cell = room.room_cells[room_idx]
                 distance_2d = Point(guard_pt).hausdorff_distance(room_cell)
+                dist_for_shadow = Point(guard_pt).distance(room_cell) # Shortest distance: worst case scenario
             else:
-                distance_2d = norm(guard_pt - room_pt) # TODO: This could be done manually for faster code
+                distance_2d = norm(guard_pt - room_pt)
+                dist_for_shadow = distance2d
+            angle = np.pi/2 - np.arctan(robot_height_scaled/distance_2d)
 
-            room_intensities[guard_idx, room_idx] = 1/(distance_2d**2 + robot_height_scaled**2)
+            # Account for robot shadow
+            if dist_for_shadow < robot_radius_scaled:
+                room_intensities[guard_idx, room_idx] = 0
+            else:
+                # Energy received follows an inverse-square law and Lambert's cosine law
+                room_intensities[guard_idx, room_idx] = np.cos(angle) * 1/(distance_2d**2 + robot_height_scaled**2)
 
-    # Patch up visibility.
+    # 3. Adjust for visibility
     eps_room = prep(room.room.buffer(EPS))
     broken_sightlines_count = 0
     broken_sightlines_list = []
@@ -81,6 +162,7 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
                 room_cell_points = list(room_cell.exterior.coords)
                 sightlines = [LineString([pt, guard_point]) for pt in room_cell_points]
                 is_visible = all([eps_room.contains(line) for line in sightlines])
+                is_visible = is_visible & (Point(guard_point).distance(room_cell) >= robot_radius_scaled)
             else:
                 sight = LineString([guard_point, room_point])
                 is_visible = eps_room.contains(sight)
@@ -92,10 +174,9 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
                 none_visible = False
 
         if none_visible:
-            print('Unreachable Room Point:', room_idx)
+            print('Unreachable Room Point:', room_point)
     
     print('Removed', broken_sightlines_count, 'broken sightlines')
-    
     return room_intensities
 
 
@@ -180,6 +261,7 @@ def plot_multi(room_polygon, multi, solution_points, color = 'r'):
 # Find the visibility polygon of a point
 # Inputs and output are shapely objects
 # Converts to scikit-geometry to find visibility intersection
+# 'point' cannot be on the boundary of the polygon
 # Note: this is inefficient for repeated calls on the same shapely polygon
 def compute_visibility_polygon(polygon, point):
     points_list = list(polygon.exterior.coords) # Includes a repeating point at the end
