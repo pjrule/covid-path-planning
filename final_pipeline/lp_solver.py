@@ -11,8 +11,15 @@ from shapely.ops import nearest_points
 from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
 from numpy.linalg import norm
-from skgeom import *
 from sys import exit
+
+# Try to load skgeom package (for naive solution)
+SKGEOM_AVAIL = False
+try:
+    from skgeom import *
+    SKGEOM_AVAIL = True
+except ImportError as e:
+    pass
 
 from branch_and_bound import branch_bound_poly
 
@@ -203,8 +210,10 @@ def get_scale(room, waiting_times, scaling_method):
 #   Place a point near the center of the room and illuminate all parts of the room it can see
 #   Repeat the process for the regions that have not yet been covered
 def solve_naive(room, robot_height_pixels, min_intensity):
-    plt.close()
+    if not SKGEOM_AVAIL:
+        exit('Error: Naive solution is not available (skgeom library could not be loaded)')
 
+    plt.close()
     covered_regions = None # Multipolygon
     solution_points = []
     solution_times = []
