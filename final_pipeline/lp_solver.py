@@ -77,6 +77,7 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
     eps_room = prep(room.room.buffer(EPS))
     broken_sightlines_count = 0
     broken_sightlines_list = []
+    not_visible_room_idx = []
     for room_idx, room_point in enumerate(room.room_grid):
         if room_idx % 50 == 0: print("Processing room index", room_idx)
         none_visible = True
@@ -99,8 +100,19 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
                 none_visible = False
 
         if none_visible:
-            print('Unreachable Room Point:', room_idx)
-    
+            # Ignore this room point - do not guarantee that it is illuminated
+            room_intensities[:, room_idx] = 1
+            not_visible_room_idx.append(room_idx)
+            print('Unreachable Room Point:', room_point)
+
+    if len(not_visible_room_idx) > 0:
+        print('CAUTION: Not all points in the room can be illuminated')
+        print('         Red regions will not be disinfected by the robot')
+        for i in not_visible_room_idx:
+            plt.fill(*room.room_cells[i].exterior.coords.xy, 'red')
+        plt.plot(*room.room.exterior.coords.xy, 'black')
+        plt.show()
+
     print('Removed', broken_sightlines_count, 'broken sightlines')
     
     return room_intensities

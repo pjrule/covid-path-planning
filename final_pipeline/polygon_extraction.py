@@ -7,20 +7,26 @@ from skimage.segmentation import watershed
 from shapely.geometry.polygon import LinearRing, Polygon
 from shapely.affinity import scale
 
+from orthogonal_simplification import construct_orthogonal_polygon
+
 # Extracts a polygon from a png of the room
 # Input:
 #   input_png:         str, the filepath to the input png
 #   output_png:        str, a filepath to save a png of the output polygon
 #   contour_accuracy:  float passed to approxPolyDP
 # Return: a shapely Polygon
-def extract_polygon(input_filepath, output_filepath, contour_accuracy = 5):
+def extract_polygon(input_filepath, output_filepath, contour_accuracy = 2, ortho_tolerance = 20):
     raw = imread(input_filepath)
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
+    gray = raw # If input path is png instead of pgm, set equal to: cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY) (TODO: Automate)
 
     # https://stackoverflow.com/questions/35189322/opencv-polygon-detection-methods
     th, im_th = cv2.threshold(gray, 220, 250, cv2.THRESH_BINARY_INV)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT,(2,2))
-    im_th2 = cv2.morphologyEx(im_th, cv2.MORPH_OPEN, kernel)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT,(3,3))
+    im_th2 = cv2.morphologyEx(im_th, cv2.MORPH_CLOSE, kernel)
+
+    #kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT,(2,2))
+    #im_th3 = cv2.morphologyEx(im_th2, cv2.MORPH_OPEN, kernel2)
+
     # Connected Components segmentation:
     maxLabels, labels = cv2.connectedComponents(im_th2)
 
@@ -57,11 +63,14 @@ def extract_polygon(input_filepath, output_filepath, contour_accuracy = 5):
     poly = cv2.approxPolyDP(room_contour, contour_accuracy, True)
     p = poly.reshape(poly.shape[0], poly.shape[2])
     p = np.append(p, [p[0]], axis=0)
+    p = Polygon(p)
+
+    orthogonal_poly = construct_orthogonal_polygon(p, ortho_tolerance)
 
     fig, ax = plt.subplots(figsize=(4, 8))
     ax.imshow(raw)
-    ax.plot(p[:, 0], p[:, 1], color='red', linewidth=4)
+    ax.plot(*p.buffer(0).exterior.coords.xy, color='red', linewidth=2)
     plt.show()
     #plt.savefig(output_filepath)
 
-    return(Polygon(p))
+    return(p.buffer(0))

@@ -11,7 +11,7 @@ from shapely.geometry import box
 ######################
 
 # I/O Files
-INPUT_FILE = '../floor_plans/gmapping_tenbenham_cropped.png'
+INPUT_FILE = '../floor_plans/hrilab_sledbot_twolasers3.pgm'
 OUTPUT_FILE = '../output/tenbenham_polygon.png'
 OUTPUT_CSV = '../output/tenbenham_waiting_times.csv'
 
@@ -21,6 +21,7 @@ METERS_PER_PIXEL = 0.05 # Constant to determine the correspondence between input
 ROBOT_HEIGHT = 1.2192   # in meters (currently set to 4 feet)
 ROBOT_BUFFER = 0.48     # "Radius" of the robot, in meters
                         #   The center of the robot will stay at least ROBOT_BUFFER meters from walls
+ORTHOGONAL_TOL = 20     # Tolerance for orthogonal simplification, in pixels
 EPSILON = 0.4           # Tolerance error. Units of ROBOT_HEIGHT meters.
                         #   A smaller epsilon guarantees that we find a
                         #   solution closer to optimal, assuming infinite speed
@@ -47,7 +48,7 @@ print('Scaled robot height', robot_height_pixels)
 
 # Step 1: read input file (pixel-like image) and transform it to a simple polygon (with clearly marked in/out)
 print('Extracting polygon')
-polygon = extract_polygon(INPUT_FILE, OUTPUT_FILE)
+polygon = extract_polygon(INPUT_FILE, OUTPUT_FILE, ortho_tolerance = ORTHOGONAL_TOL)
 
 # Step 2: a Room object contains not only the boundary, but creates a discretized list of places
 #         for the robot to guard (and list of places where the robot can actually move to)
