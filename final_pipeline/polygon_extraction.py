@@ -69,8 +69,8 @@ def extract_polygon(input_filepath, output_filepath, contour_accuracy = 2, ortho
 
     fig, ax = plt.subplots(figsize=(4, 8))
     ax.imshow(raw)
-    ax.plot(*p.buffer(0).exterior.coords.xy, color='red', linewidth=2)
+    ax.plot(*orthogonal_poly.exterior.coords.xy, color='red', linewidth=2)
     plt.show()
     #plt.savefig(output_filepath)
 
-    return(p.buffer(0))
+    return(orthogonal_poly)

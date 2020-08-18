@@ -23,7 +23,11 @@ class Room:
         self.room_eps = room_eps
         self.guard_eps = guard_eps
         self.room = polygon
+
         self.guard = self.room.buffer(-robot_buffer_pixels)
+        if self.guard.geom_type == 'MultiPolygon':
+            self.guard = max(self.guard, key = lambda p: p.area)
+
         self.room_grid, self.room_cells = self._grid(self.room, room_eps)
         self.guard_grid, self.guard_cells = self._grid(self.guard, guard_eps)
         
