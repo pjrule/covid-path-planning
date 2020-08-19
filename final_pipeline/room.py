@@ -18,45 +18,50 @@ class Room:
 
     TODO: input geojson instead of polygon (ie. revert to the working code)
     """
-    def __init__(self, polygon, units_per_pixel = 0.0410105, robot_buffer_pixels = 0, room_eps=0.5, guard_eps=0.5):
-        self.units_per_pixel = units_per_pixel
+    def __init__(self, polygon, robot_buffer_meters = 0, is_valid_guard = lambda x, y: True, room_eps=0.5, guard_eps=0.5):
         self.room_eps = room_eps
         self.guard_eps = guard_eps
         self.room = polygon
 
-        self.guard = self.room.buffer(-robot_buffer_pixels)
+        print("getting guard")
+        self.guard = self.room.buffer(-robot_buffer_meters)
         if self.guard.geom_type == 'MultiPolygon':
             self.guard = max(self.guard, key = lambda p: p.area)
 
+        
+        # plt.plot(*self.room.exterior.xy)
+        # plt.plot(*self.guard.exterior.xy)
+        # plt.show()
+
+        print("getting room grid")
         self.room_grid, self.room_cells = self._grid(self.room, room_eps)
-        self.guard_grid, self.guard_cells = self._grid(self.guard, guard_eps)
+
+        print("getting guard grid")
+        self.guard_grid, self.guard_cells = self._grid(self.guard, guard_eps, is_valid_guard)
         
         
-    def _grid(self, geom, epsilon):
+    def _grid(self, geom, epsilon, is_valid = lambda x, y: True):
         """Returns points within a geometry (gridded over its bounding box).
         
         Points on the grid inside the bounding box but outside the geometry
         are rejected.
         
-        :param epsilon: The maximum distance of any point in the room to a
-                        point on the grid
+        :param epsilon: The length of a grid cell side
         """
         minx, miny, maxx, maxy = geom.bounds
-        pixel_eps = epsilon * 1/self.units_per_pixel
-        step_size = pixel_eps/np.sqrt(2)
 
-        x_arr = np.arange(minx, maxx, step_size)
-        y_arr = np.arange(miny, maxy, step_size)
+        x_arr = np.arange(minx, maxx, epsilon)
+        y_arr = np.arange(miny, maxy, epsilon)
         xx, yy = np.meshgrid(x_arr, y_arr)
         filtered_points = []
         filtered_cells = []
         for x, y in zip(xx.flatten(), yy.flatten()):
-            is_in_geom, data = self._get_grid_cell(x, y, step_size, geom)
-            if is_in_geom:
+            is_in_geom, data = self._get_grid_cell(x, y, epsilon, geom)
+            if is_in_geom and is_valid(x,y):
                 cells, cell_points = data
                 filtered_points.extend([(point.x, point.y) for point in cell_points])
                 filtered_cells.extend(cells)
-        
+
         return np.array(filtered_points), np.array(filtered_cells)
     
     def _get_grid_cell(self, x, y, box_size, geom):
@@ -64,7 +69,7 @@ class Room:
 
         Returns a boolean indicating if the grid cell is empty and a data object.
         If the grid cell is not empty, `data` is tuple that contains
-        a list of simple polygons (shapely.Polygon) that compose the interseciton
+        a list of simple polygons (shapely.Polygon) that compose the intersection
         and a list of representatives points (shapely.Point) inside the polygons
             
         Throws an error if the grid cell is not a simple polygon.

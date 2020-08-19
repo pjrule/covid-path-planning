@@ -2,9 +2,10 @@
 
 import pandas as pd
 from room import Room
-from polygon_extraction import extract_polygon
+from polygon_extraction import extract_polygon, construct_isValidLocation_function
 from lp_solver import solve_full_lp, visualize_times, solve_naive
 from shapely.geometry import box
+import matplotlib.pyplot as plt
 
 ######################
 ###   Parameters   ###
@@ -12,17 +13,15 @@ from shapely.geometry import box
 
 # I/O Files
 INPUT_FILE = '../floor_plans/hrilab_sledbot_twolasers3.pgm'
-OUTPUT_FILE = '../output/tenbenham_polygon.png'
+INPUT_YAML = '../floor_plans/hrilab_sledbot_twolasers3.yaml'
 OUTPUT_CSV = '../output/tenbenham_waiting_times.csv'
 
 # Robot dimensions
-METERS_PER_PIXEL = 0.05 # Constant to determine the correspondence between input pixels and dimensions in real space
-                        # HARDCODED. Should read from input file instead
 ROBOT_HEIGHT = 1.2192   # in meters (currently set to 4 feet)
-ROBOT_BUFFER = 0.48     # "Radius" of the robot, in meters
+ROBOT_BUFFER = 0.4      # "Radius" of the robot, in meters
                         #   The center of the robot will stay at least ROBOT_BUFFER meters from walls
 ORTHOGONAL_TOL = 20     # Tolerance for orthogonal simplification, in pixels
-EPSILON = 0.4           # Tolerance error. Units of ROBOT_HEIGHT meters.
+EPSILON = 0.4           # Size of grid for discretization. Units of meters.
                         #   A smaller epsilon guarantees that we find a
                         #   solution closer to optimal, assuming infinite speed
                         #   The right value should be determined experimentally
@@ -41,26 +40,28 @@ scaling_method = 'none' # must be in {'epsilon', 'branch_and_bound', 'none'}
 ###   Compute Solution   ###
 ############################
 
-units_per_pixel =  METERS_PER_PIXEL * 1/ROBOT_HEIGHT
-robot_height_pixels = ROBOT_HEIGHT * 1/METERS_PER_PIXEL
-robot_buffer_pixels = ROBOT_BUFFER * 1/METERS_PER_PIXEL
-print('Scaled robot height', robot_height_pixels)
-
 # Step 1: read input file (pixel-like image) and transform it to a simple polygon (with clearly marked in/out)
 print('Extracting polygon')
-polygon = extract_polygon(INPUT_FILE, OUTPUT_FILE, ortho_tolerance = ORTHOGONAL_TOL)
+polygon, gray_img, xy_to_pixel, meters_per_pixel = extract_polygon(INPUT_FILE, INPUT_YAML, ortho_tolerance = ORTHOGONAL_TOL)
+
+is_valid_location = construct_isValidLocation_function(gray_img, xy_to_pixel, ROBOT_BUFFER, meters_per_pixel)
 
 # Step 2: a Room object contains not only the boundary, but creates a discretized list of places
 #         for the robot to guard (and list of places where the robot can actually move to)
 print('Creating room')
-room = Room(polygon, units_per_pixel, robot_buffer_pixels = robot_buffer_pixels, room_eps = EPSILON, guard_eps = EPSILON)
+room = Room(polygon, robot_buffer_meters = ROBOT_BUFFER, is_valid_guard = is_valid_location, room_eps = EPSILON, guard_eps = EPSILON)
+
+for guard_pt in room.guard_grid:
+    plt.scatter(*guard_pt, color = 'blue')
+plt.plot(*polygon.exterior.xy, color = 'red')
+plt.show()
 
 if naive_solution:
-    solve_naive(room, robot_height_pixels, MIN_INTENSITY)
+    solve_naive(room, ROBOT_HEIGHT, MIN_INTENSITY)
 else:
     # Step 3: we generate the LP problem and solve it.
     print('Solving lp')
-    time, waiting_times, intensities = solve_full_lp(room, robot_height_pixels, use_strong_visibility, use_strong_distances, scaling_method, MIN_INTENSITY)
+    time, waiting_times, intensities = solve_full_lp(room, ROBOT_HEIGHT, use_strong_visibility, use_strong_distances, scaling_method, MIN_INTENSITY)
 
     # Step 4: Output a solution
     print('Total solution time:', time)

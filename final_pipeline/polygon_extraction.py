@@ -2,20 +2,23 @@ import matplotlib.pyplot as plt
 import geopandas as gpd
 import numpy as np
 import cv2
+import math
 from skimage.io import imread
 from skimage.segmentation import watershed
 from shapely.geometry.polygon import LinearRing, Polygon
 from shapely.affinity import scale
+from shapely.ops import transform
+from yaml import safe_load
 
 from orthogonal_simplification import construct_orthogonal_polygon
 
 # Extracts a polygon from a png of the room
 # Input:
-#   input_png:         str, the filepath to the input png
-#   output_png:        str, a filepath to save a png of the output polygon
+#   input_filepath:    str, the filepath to the input pgm
+#   input_yaml:        str, a filepath to the input yaml
 #   contour_accuracy:  float passed to approxPolyDP
 # Return: a shapely Polygon
-def extract_polygon(input_filepath, output_filepath, contour_accuracy = 2, ortho_tolerance = 20):
+def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tolerance = 20):
     raw = imread(input_filepath)
     gray = raw # If input path is png instead of pgm, set equal to: cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY) (TODO: Automate)
 
@@ -67,10 +70,73 @@ def extract_polygon(input_filepath, output_filepath, contour_accuracy = 2, ortho
 
     orthogonal_poly = construct_orthogonal_polygon(p, ortho_tolerance)
 
-    fig, ax = plt.subplots(figsize=(4, 8))
-    ax.imshow(raw)
-    ax.plot(*orthogonal_poly.exterior.coords.xy, color='red', linewidth=2)
-    plt.show()
-    #plt.savefig(output_filepath)
+    # Parse yaml file
+    with open(input_yaml, 'r') as yaml_file:
+        scan_params = safe_load(yaml_file)
+    
+    meters_per_pixel = scan_params['resolution']
+    lower_left_x = scan_params['origin'][0]
+    lower_left_y = scan_params['origin'][1]
 
-    return(orthogonal_poly)
+    # scikit-image interprets (0,0) as the top left corner
+    # We want (0,0) to the be bottom left corner
+    # To do this, flip around reflection line
+    reflection_line_meters = gray.shape[0]/2 * meters_per_pixel
+
+    # Convert from cv2.findContours coordinates
+    def cv2_coords_to_xy(img_x, img_y):
+        # Convert to meters
+        x = img_x * meters_per_pixel
+        y = img_y * meters_per_pixel
+
+        # Flip y across center line
+        y = -y + 2 * reflection_line_meters
+
+        # Translate image so lower left corner, previously (0,0),
+        # now has correct coordinates
+        x = x + lower_left_x
+        y = y + lower_left_y
+
+        return (x, y)
+
+    # Note: cv2 coords are in the format (x, y)
+    # but pixels are denoted (row, column)
+    def xy_to_pixel(poly_x, poly_y):
+        # Translate
+        x = poly_x - lower_left_x
+        y = poly_y - lower_left_y
+
+        # Flip y across center line
+        y = -y + 2 * reflection_line_meters
+
+        # Convert to pixels
+        x = x * 1/meters_per_pixel
+        y = y * 1/meters_per_pixel
+
+        return (int(y), int(x))
+
+    orthogonal_poly = transform(cv2_coords_to_xy, orthogonal_poly)
+
+    # Display polygon
+    fig, ax = plt.subplots(figsize=(4, 8))
+    ax.plot(*orthogonal_poly.exterior.coords.xy, color='red', linewidth=2)
+    ax.axis('equal')
+    plt.show()
+
+    return(orthogonal_poly, gray, xy_to_pixel, meters_per_pixel)
+
+
+# In the gray image, a pixel is:
+# - 0   if contains a wall
+# - 205 if it is unknown
+# - 254 if it is empty
+def construct_isValidLocation_function(gray, xy_to_pixel, robot_buffer, meters_per_pixel):
+    robot_buffer_pixels = math.ceil(robot_buffer * 1/meters_per_pixel)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(robot_buffer_pixels, robot_buffer_pixels))    
+    expanded_walls = cv2.erode(gray, kernel)
+
+    def is_valid_location(x, y):
+        img_x, img_y = xy_to_pixel(x, y)
+        return expanded_walls[img_x, img_y] != 0
+
+    return is_valid_location

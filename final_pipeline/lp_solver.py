@@ -24,8 +24,8 @@ from branch_and_bound import branch_bound_poly
 
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
-def solve_full_lp(room, robot_height_scaled, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
-    room_intensities = get_intensities(room, robot_height_scaled, use_strong_visibility, use_strong_distances)
+def solve_full_lp(room, robot_height, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
+    room_intensities = get_intensities(room, robot_height, use_strong_visibility, use_strong_distances)
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
     constraints = [
@@ -51,13 +51,12 @@ def visualize_times(room, waiting_times):
     ax = plt.axes()
     ax.axis('equal')
     ax.plot(*room.room.exterior.xy)
-    ax.plot(*room.guard.exterior.xy)
 
-    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
+    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times * 10, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
     plt.show()
 
 
-def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use_strong_distances = True):
+def get_intensities(room, robot_height, use_strong_visibility = True, use_strong_distances = True):
     # Construct initial intensities matrix, ignoring visibility
     num_guard_points = room.guard_grid.shape[0]
     num_room_points = room.room_grid.shape[0]
@@ -71,7 +70,7 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
             else:
                 distance_2d = norm(guard_pt - room_pt) # TODO: This could be done manually for faster code
 
-            room_intensities[guard_idx, room_idx] = 1/(distance_2d**2 + robot_height_scaled**2)
+            room_intensities[guard_idx, room_idx] = 1/(distance_2d**2 + robot_height**2)
 
     # Patch up visibility.
     eps_room = prep(room.room.buffer(EPS))
@@ -120,6 +119,8 @@ def get_intensities(room, robot_height_scaled, use_strong_visibility = True, use
 
 def get_scale(room, waiting_times, scaling_method):
     if scaling_method == 'epsilon':
+        print('ERROR: Epsilon scaling not currently supported. Need to convert epsilon to units of robot height')
+        return None
         scale = (np.sqrt(room.room_eps**2 + 4) + room.room_eps)/(np.sqrt(room.room_eps**2 + 4) - room.room_eps)
     elif scaling_method == 'branch_and_bound':
         _, lower_bound, _ = branch_bound_poly(room, waiting_times, max_iters = 50)
@@ -140,7 +141,7 @@ def get_scale(room, waiting_times, scaling_method):
 # Naive solution:
 #   Place a point near the center of the room and illuminate all parts of the room it can see
 #   Repeat the process for the regions that have not yet been covered
-def solve_naive(room, robot_height_pixels, min_intensity):
+def solve_naive(room, robot_height, min_intensity):
     if not SKGEOM_AVAIL:
         exit('Error: Naive solution is not available (skgeom library could not be loaded)')
 
@@ -162,7 +163,7 @@ def solve_naive(room, robot_height_pixels, min_intensity):
         not_covered = not_covered.difference(vis)
 
         max_distance = point.hausdorff_distance(to_be_covered)
-        curr_time = min_intensity * (max_distance**2 + robot_height_pixels**2)
+        curr_time = min_intensity * (max_distance**2 + robot_height**2)
         time += curr_time
         solution_points.append(point)
         solution_times.append(curr_time)
