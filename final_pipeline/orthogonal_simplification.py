@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from shapely.geometry import Polygon
 from shapely.affinity import rotate
+from shapely.ops import unary_union
 
 # Work-in-progress implementation of https://arxiv.org/pdf/1504.06584.pdf for orthogonal polygons
 
@@ -29,7 +30,7 @@ def construct_orthogonal_polygon(input_polygon, tolerance):
 
     # Clean up polygon
     aligned_orthogonal_polygon = rotate(orthogonal_polygon, -angle, origin = (0,0), use_radians = True)
-    aligned_orthogonal_polygon = aligned_orthogonal_polygon.buffer(0) # Discard self intersecting portions (TODO: make this more robust)
+    aligned_orthogonal_polygon = aligned_orthogonal_polygon.buffer(-0.001) # Discard self intersecting portions. Small epsilon to avoid overlapping segments (TODO: make this more robust)
     aligned_orthogonal_polygon = aligned_orthogonal_polygon.simplify(0) # Get rid of redundant points
 
     return aligned_orthogonal_polygon
