@@ -24,8 +24,8 @@ from branch_and_bound import branch_bound_poly
 
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
-def solve_full_lp(room, robot_height, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
-    room_intensities = get_intensities(room, robot_height, use_strong_visibility, use_strong_distances)
+def solve_full_lp(room, robot_height, robot_power, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
+    room_intensities = get_intensities(room, robot_height, robot_power, use_strong_visibility, use_strong_distances)
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
     constraints = [
@@ -56,7 +56,8 @@ def visualize_times(room, waiting_times):
     plt.show()
 
 
-def get_intensities(room, robot_height, use_strong_visibility = True, use_strong_distances = True):
+# Intensity is power transmitted per unit area
+def get_intensities(room, robot_height, robot_power, use_strong_visibility = True, use_strong_distances = True):
     # Construct initial intensities matrix, ignoring visibility
     num_guard_points = room.guard_grid.shape[0]
     num_room_points = room.room_grid.shape[0]
@@ -70,7 +71,7 @@ def get_intensities(room, robot_height, use_strong_visibility = True, use_strong
             else:
                 distance_2d = norm(guard_pt - room_pt) # TODO: This could be done manually for faster code
 
-            room_intensities[guard_idx, room_idx] = 1/(distance_2d**2 + robot_height**2)
+            room_intensities[guard_idx, room_idx] = robot_power/(4 * np.pi * (distance_2d**2 + robot_height**2))
 
     # Patch up visibility.
     eps_room = prep(room.room.buffer(EPS))
