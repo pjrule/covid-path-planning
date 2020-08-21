@@ -6,6 +6,7 @@ from polygon_extraction import extract_polygon, construct_isValidLocation_functi
 from lp_solver import solve_full_lp, visualize_times, solve_naive
 from shapely.geometry import box
 import matplotlib.pyplot as plt
+from shapely.ops import transform
 
 ######################
 ###   Parameters   ###
@@ -47,16 +48,17 @@ ROOM_EPSILON = 0.4      # Size of grid for discretization of locations to
 print('Extracting polygon')
 polygon, gray_img, xy_to_pixel, meters_per_pixel = extract_polygon(INPUT_FILE, INPUT_YAML, ortho_tolerance = ORTHOGONAL_TOL)
 
-is_valid_location = construct_isValidLocation_function(gray_img, xy_to_pixel, ROBOT_BUFFER, meters_per_pixel)
+is_valid_location = construct_isValidLocation_function(gray_img, xy_to_pixel, ROBOT_RADIUS, meters_per_pixel)
 
 # Step 2: a Room object contains not only the boundary, but creates a discretized list of places
 #         for the robot to guard (and list of places where the robot can actually move to)
 print('Creating room')
-room = Room(polygon, robot_buffer_meters = ROBOT_BUFFER, is_valid_guard = is_valid_location, room_eps = EPSILON, guard_eps = EPSILON)
+room = Room(polygon, robot_buffer_meters = ROBOT_RADIUS, is_valid_guard = is_valid_location, room_eps = EPSILON, guard_eps = EPSILON)
 
+plt.imshow(gray_img)
 for guard_pt in room.guard_grid:
-    plt.scatter(*guard_pt, color = 'blue')
-plt.plot(*polygon.exterior.xy, color = 'red')
+    plt.scatter(*xy_to_pixel(guard_pt), color = 'blue')
+plt.plot(*transform(xy_to_pixel, polygon).exterior.xy, color = 'red')
 plt.show()
 
 if naive_solution:

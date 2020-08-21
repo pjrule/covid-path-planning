@@ -11,6 +11,7 @@ from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
 from numpy.linalg import norm
 from sys import exit
+from shapely.ops import transform
 
 # Try to load skgeom package (for naive solution)
 SKGEOM_AVAIL = False
@@ -47,31 +48,45 @@ def solve_full_lp(room, robot_height, robot_power, use_strong_visibility, use_st
 
     return solution_time, loc_times.value, room_intensities.T
 
-def visualize_times(room, waiting_times):
+def visualize_times(room, waiting_times, room_image, xy_to_pixel):
     ax = plt.axes()
     ax.axis('equal')
-    ax.plot(*room.room.exterior.xy)
+    ax.imshow(room_image)
+    ax.plot(*transform(xy_to_pixel, room.room).exterior.xy)
 
-    ax.scatter(room.guard_grid[:,0], room.guard_grid[:,1], s = waiting_times * 10, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
+    guard_points_x = [xy_to_pixel(x, y)[0] for x, y in room.guard_grid]
+    guard_points_y = [xy_to_pixel(x, y)[1] for x, y in room.guard_grid]
+    ax.scatter(guard_points_x, guard_points_y, s = waiting_times * 10, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
     plt.show()
 
 
 # Intensity is power transmitted per unit area
 def get_intensities(room, robot_height, robot_power, use_strong_visibility = True, use_strong_distances = True):
     # Construct initial intensities matrix, ignoring visibility
+    # *Do* account for inverse distance, angle, and robot shadow
     num_guard_points = room.guard_grid.shape[0]
     num_room_points = room.room_grid.shape[0]
     room_intensities = np.zeros(shape = (num_guard_points, num_room_points))
 
     for guard_idx, guard_pt in enumerate(room.guard_grid):
+        if guard_idx % 50 == 0: print("Getting intensity for point: ", guard_idx)
         for room_idx, room_pt in enumerate(room.room_grid):
             if use_strong_distances:
                 room_cell = room.room_cells[room_idx]
                 distance_2d = Point(guard_pt).hausdorff_distance(room_cell)
+                dist_for_shadow = Point(guard_pt).distance(room_cell) # Shortest distance: worst case scenario
             else:
-                distance_2d = norm(guard_pt - room_pt) # TODO: This could be done manually for faster code
+                distance_2d = norm(guard_pt - room_pt)
+                dist_for_shadow = distance2d
 
-            room_intensities[guard_idx, room_idx] = robot_power/(4 * np.pi * (distance_2d**2 + robot_height**2))
+            angle = np.pi/2 - np.arctan(robot_height_scaled/distance_2d)
+
+            # Account for robot shadow
+            if dist_for_shadow < robot_radius_scaled:
+                room_intensities[guard_idx, room_idx] = 0
+            else:
+                # Energy received follows an inverse-square law and Lambert's cosine law
+                room_intensities[guard_idx, room_idx] = robot_power * np.cos(angle) * 1/(4 * np.pi * (distance_2d**2 + robot_height_scaled**2))
 
     # Patch up visibility.
     eps_room = prep(room.room.buffer(EPS))

@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from shapely.geometry import Polygon
 from shapely.affinity import rotate
-from shapely.ops import unary_union
 
 # Work-in-progress implementation of https://arxiv.org/pdf/1504.06584.pdf for orthogonal polygons
 
