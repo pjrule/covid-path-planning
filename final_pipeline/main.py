@@ -53,20 +53,14 @@ is_valid_location = construct_isValidLocation_function(gray_img, xy_to_pixel, RO
 # Step 2: a Room object contains not only the boundary, but creates a discretized list of places
 #         for the robot to guard (and list of places where the robot can actually move to)
 print('Creating room')
-room = Room(polygon, robot_buffer_meters = ROBOT_RADIUS, is_valid_guard = is_valid_location, room_eps = EPSILON, guard_eps = EPSILON)
-
-plt.imshow(gray_img)
-for guard_pt in room.guard_grid:
-    plt.scatter(*xy_to_pixel(guard_pt), color = 'blue')
-plt.plot(*transform(xy_to_pixel, polygon).exterior.xy, color = 'red')
-plt.show()
+room = Room(polygon, gray_img, xy_to_pixel, robot_buffer_meters = ROBOT_RADIUS, is_valid_guard = is_valid_location, room_eps = ROOM_EPSILON, guard_eps = ROBOT_EPSILON)
 
 if naive_solution:
     solve_naive(room, ROBOT_HEIGHT, DISINFECTION_THRESHOLD)
 else:
     # Step 3: we generate the LP problem and solve it.
     print('Solving lp')
-    time, waiting_times, intensities = solve_full_lp(room, ROBOT_HEIGHT, ROBOT_WATTAGE, use_strong_visibility, use_strong_distances, scaling_method, DISINFECTION_THRESHOLD)
+    time, waiting_times, intensities = solve_full_lp(room, ROBOT_HEIGHT, ROBOT_RADIUS, ROBOT_WATTAGE, use_strong_visibility, use_strong_distances, scaling_method, DISINFECTION_THRESHOLD)
 
     # Step 4: Output a solution
     print('Total solution time:', time)

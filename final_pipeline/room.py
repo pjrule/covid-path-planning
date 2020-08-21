@@ -7,7 +7,7 @@ from shapely.geometry import box, Point, LineString, Polygon, MultiPolygon
 from shapely.affinity import scale
 from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
-
+from shapely.ops import transform
 
 class Room:
     """Represents the geometries of a room and its guarded region.
@@ -18,26 +18,27 @@ class Room:
 
     TODO: input geojson instead of polygon (ie. revert to the working code)
     """
-    def __init__(self, polygon, robot_buffer_meters = 0, is_valid_guard = lambda x, y: True, room_eps=0.5, guard_eps=0.5):
+    def __init__(self, polygon, room_img, xy_to_pixel, robot_buffer_meters = 0, is_valid_guard = lambda x, y: True, room_eps=0.5, guard_eps=0.5):
         self.room_eps = room_eps
         self.guard_eps = guard_eps
         self.room = polygon
+        self.room_img = room_img
+        self.xy_to_pixel = xy_to_pixel
 
-        print("getting guard")
         self.guard = self.room.buffer(-robot_buffer_meters)
         if self.guard.geom_type == 'MultiPolygon':
             self.guard = max(self.guard, key = lambda p: p.area)
 
-        
-        # plt.plot(*self.room.exterior.xy)
-        # plt.plot(*self.guard.exterior.xy)
-        # plt.show()
-
-        print("getting room grid")
         self.room_grid, self.room_cells = self._grid(self.room, room_eps)
-
-        print("getting guard grid")
         self.guard_grid, self.guard_cells = self._grid(self.guard, guard_eps, is_valid_guard)
+
+        # Visualize all possible robot locations
+        plt.imshow(self.room_img)
+        for guard_pt in self.guard_grid:
+            plt.scatter(*self.xy_to_pixel(*guard_pt), color = 'blue')
+        plt.plot(*transform(self.xy_to_pixel, polygon).exterior.xy, color = 'red')
+        plt.show()
+
         
         
     def _grid(self, geom, epsilon, is_valid = lambda x, y: True):
@@ -57,10 +58,10 @@ class Room:
         filtered_cells = []
         for x, y in zip(xx.flatten(), yy.flatten()):
             is_in_geom, data = self._get_grid_cell(x, y, epsilon, geom)
-            if is_in_geom and is_valid(x,y):
+            if is_in_geom:
                 cells, cell_points = data
-                filtered_points.extend([(point.x, point.y) for point in cell_points])
-                filtered_cells.extend(cells)
+                filtered_points.extend([cell_points[i] for i in range(len(cell_points)) if is_valid(*cell_points[i])])
+                filtered_cells.extend([cells[i]        for i in range(len(cell_points)) if is_valid(*cell_points[i])])
 
         return np.array(filtered_points), np.array(filtered_cells)
     
@@ -87,12 +88,14 @@ class Room:
             assert intersection.is_simple, "Increase grid resolution to ensure grid cells are simple polygons"
             is_in_geom = True
             cells = [intersection]
-            cell_points = [intersection.representative_point()]
+            cell_point_shapely = intersection.representative_point()
+            cell_points = [(cell_point_shapely.x, cell_point_shapely.y)]
             data = (cells, cell_points)
         elif isinstance(intersection, MultiPolygon):
             is_in_geom = True
             cells = list(intersection)
-            cell_points = [cell.representative_point() for cell in cells]
+            cell_points_shapely = [cell.representative_point() for cell in cells]
+            cell_points = [(point.x, point.y) for point in cell_points_shapely]
             data = (cells, cell_points)
         else:
             # This should never happen...

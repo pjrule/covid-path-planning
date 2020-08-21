@@ -25,8 +25,8 @@ from branch_and_bound import branch_bound_poly
 
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
-def solve_full_lp(room, robot_height, robot_power, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
-    room_intensities = get_intensities(room, robot_height, robot_power, use_strong_visibility, use_strong_distances)
+def solve_full_lp(room, robot_height, robot_radius, robot_power, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
+    room_intensities = get_intensities(room, robot_height, robot_radius, robot_power, use_strong_visibility, use_strong_distances)
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
     constraints = [
@@ -48,20 +48,20 @@ def solve_full_lp(room, robot_height, robot_power, use_strong_visibility, use_st
 
     return solution_time, loc_times.value, room_intensities.T
 
-def visualize_times(room, waiting_times, room_image, xy_to_pixel):
+def visualize_times(room, waiting_times):
     ax = plt.axes()
     ax.axis('equal')
-    ax.imshow(room_image)
-    ax.plot(*transform(xy_to_pixel, room.room).exterior.xy)
+    ax.imshow(room.room_img)
+    ax.plot(*transform(room.xy_to_pixel, room.room).exterior.xy)
 
-    guard_points_x = [xy_to_pixel(x, y)[0] for x, y in room.guard_grid]
-    guard_points_y = [xy_to_pixel(x, y)[1] for x, y in room.guard_grid]
-    ax.scatter(guard_points_x, guard_points_y, s = waiting_times * 10, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
+    guard_points_x = [room.xy_to_pixel(x, y)[0] for x, y in room.guard_grid]
+    guard_points_y = [room.xy_to_pixel(x, y)[1] for x, y in room.guard_grid]
+    ax.scatter(guard_points_x, guard_points_y, s = waiting_times / 10, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
     plt.show()
 
 
 # Intensity is power transmitted per unit area
-def get_intensities(room, robot_height, robot_power, use_strong_visibility = True, use_strong_distances = True):
+def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_visibility = True, use_strong_distances = True):
     # Construct initial intensities matrix, ignoring visibility
     # *Do* account for inverse distance, angle, and robot shadow
     num_guard_points = room.guard_grid.shape[0]
@@ -69,7 +69,7 @@ def get_intensities(room, robot_height, robot_power, use_strong_visibility = Tru
     room_intensities = np.zeros(shape = (num_guard_points, num_room_points))
 
     for guard_idx, guard_pt in enumerate(room.guard_grid):
-        if guard_idx % 50 == 0: print("Getting intensity for point: ", guard_idx)
+        if guard_idx % 50 == 0: print("Getting intensity for guard point: {}/{}".format(guard_idx, room.guard_grid.shape[0]))
         for room_idx, room_pt in enumerate(room.room_grid):
             if use_strong_distances:
                 room_cell = room.room_cells[room_idx]
@@ -79,14 +79,14 @@ def get_intensities(room, robot_height, robot_power, use_strong_visibility = Tru
                 distance_2d = norm(guard_pt - room_pt)
                 dist_for_shadow = distance2d
 
-            angle = np.pi/2 - np.arctan(robot_height_scaled/distance_2d)
+            angle = np.pi/2 - np.arctan(robot_height/distance_2d)
 
             # Account for robot shadow
-            if dist_for_shadow < robot_radius_scaled:
+            if dist_for_shadow < robot_radius:
                 room_intensities[guard_idx, room_idx] = 0
             else:
                 # Energy received follows an inverse-square law and Lambert's cosine law
-                room_intensities[guard_idx, room_idx] = robot_power * np.cos(angle) * 1/(4 * np.pi * (distance_2d**2 + robot_height_scaled**2))
+                room_intensities[guard_idx, room_idx] = robot_power * np.cos(angle) * 1/(4 * np.pi * (distance_2d**2 + robot_height**2))
 
     # Patch up visibility.
     eps_room = prep(room.room.buffer(EPS))
@@ -94,7 +94,7 @@ def get_intensities(room, robot_height, robot_power, use_strong_visibility = Tru
     broken_sightlines_list = []
     not_visible_room_idx = []
     for room_idx, room_point in enumerate(room.room_grid):
-        if room_idx % 50 == 0: print("Processing room index", room_idx)
+        if room_idx % 50 == 0: print("Processing room index: {}/{}".format(room_idx, room.room_grid.shape[0]))
         none_visible = True
         for guard_idx, guard_point in enumerate(room.guard_grid):
             if use_strong_visibility:
@@ -123,9 +123,10 @@ def get_intensities(room, robot_height, robot_power, use_strong_visibility = Tru
     if len(not_visible_room_idx) > 0:
         print('CAUTION: Not all points in the room can be illuminated')
         print('         Red regions will not be disinfected by the robot')
+        plt.imshow(room.room_img)
         for i in not_visible_room_idx:
-            plt.fill(*room.room_cells[i].exterior.coords.xy, 'red')
-        plt.plot(*room.room.exterior.coords.xy, 'black')
+            plt.fill(*transform(room.xy_to_pixel, room.room_cells[i]).exterior.coords.xy, 'red')
+        plt.plot(*transform(room.xy_to_pixel, room.room).exterior.coords.xy, 'black')
         plt.show()
 
     print('Removed', broken_sightlines_count, 'broken sightlines')

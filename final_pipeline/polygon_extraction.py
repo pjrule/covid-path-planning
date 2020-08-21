@@ -70,6 +70,15 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
 
     orthogonal_poly = construct_orthogonal_polygon(p, ortho_tolerance)
 
+
+    # Display polygon with original image
+    fig, ax = plt.subplots(figsize=(4, 8))
+    ax.imshow(gray)
+    ax.plot(*orthogonal_poly.exterior.coords.xy, color='red', linewidth=2)
+    ax.axis('equal')
+    plt.show()
+
+
     # Parse yaml file
     with open(input_yaml, 'r') as yaml_file:
         scan_params = safe_load(yaml_file)
@@ -113,15 +122,9 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
         x = x * 1/meters_per_pixel
         y = y * 1/meters_per_pixel
 
-        return (int(y), int(x))
+        return (int(x), int(y))
 
     orthogonal_poly = transform(cv2_coords_to_xy, orthogonal_poly)
-
-    # Display polygon
-    fig, ax = plt.subplots(figsize=(4, 8))
-    ax.plot(*orthogonal_poly.exterior.coords.xy, color='red', linewidth=2)
-    ax.axis('equal')
-    plt.show()
 
     return(orthogonal_poly, gray, xy_to_pixel, meters_per_pixel)
 
@@ -136,7 +139,7 @@ def construct_isValidLocation_function(gray, xy_to_pixel, robot_buffer, meters_p
     expanded_walls = cv2.erode(gray, kernel)
 
     def is_valid_location(x, y):
-        img_x, img_y = xy_to_pixel(x, y)
-        return expanded_walls[img_x, img_y] != 0
+        img_col, img_row = xy_to_pixel(x, y)
+        return expanded_walls[img_row, img_col] != 0
 
     return is_valid_location
