@@ -1,3 +1,10 @@
+'''
+polygon_extraction.py
+
+Contains methods for the "preprocessing" step -  converting an input png into
+a closed polygon representing the room
+'''
+
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import numpy as np
@@ -15,10 +22,22 @@ from orthogonal_simplification import construct_orthogonal_polygon
 # Extracts a polygon from a png of the room
 # Input:
 #   input_filepath:    str, the filepath to the input pgm
-#   input_yaml:        str, a filepath to the input yaml
+#   input_yaml:        str, a filepath to the input yaml describing the scan
 #   contour_accuracy:  float passed to approxPolyDP
-# Return: a shapely Polygon
-def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tolerance = 20):
+#                      This controls initial simplification done before the
+#                      orthogonal approximation, used to speed up the runtime
+#                      of the orthogonal approximation
+#   ortho_tolerance:   float, the maximum distance the orthogonal approximation
+#                      can deviate from the original curve
+# Returns: a tuple containing
+#   1. An orthogonal shapely Polygon approximating the room, using the
+#      'meters-based' coordinate system defined by the yaml file
+#   2. A 2D numpy array representing the room image stored in (row, col) order
+#      where 0 = 'occupied', 205 = 'uknown', and 254 = 'unoccupied'
+#   3. A method to convert (x, y) coordinates in the 'meters' space to (x, y)
+#      coordinates in the 'image pixel' space.
+#   4. A float describing meters per pixel
+def extract_polygon(input_filepath, input_yaml, contour_accuracy = 0, ortho_tolerance = 20):
     raw = imread(input_filepath)
     gray = raw # If input path is png instead of pgm, set equal to: cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY) (TODO: Automate)
 
@@ -26,9 +45,6 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
     th, im_th = cv2.threshold(gray, 220, 250, cv2.THRESH_BINARY_INV)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT,(3,3))
     im_th2 = cv2.morphologyEx(im_th, cv2.MORPH_CLOSE, kernel)
-
-    #kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT,(2,2))
-    #im_th3 = cv2.morphologyEx(im_th2, cv2.MORPH_OPEN, kernel2)
 
     # Connected Components segmentation:
     maxLabels, labels = cv2.connectedComponents(im_th2)
@@ -92,7 +108,7 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
     # To do this, flip around reflection line
     reflection_line_meters = gray.shape[0]/2 * meters_per_pixel
 
-    # Convert from cv2.findContours coordinates
+    # Convert from cv2.findContours coordinates to 'meters' coordinates
     def cv2_coords_to_xy(img_x, img_y):
         # Convert to meters
         x = img_x * meters_per_pixel
@@ -108,8 +124,7 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
 
         return (x, y)
 
-    # Note: cv2 coords are in the format (x, y)
-    # but pixels are denoted (row, column)
+    # Convert from 'meters' coordinates to cv2.findContours coordinates
     def xy_to_pixel(poly_x, poly_y):
         # Translate
         x = poly_x - lower_left_x
@@ -129,10 +144,9 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
     return(orthogonal_poly, gray, xy_to_pixel, meters_per_pixel)
 
 
-# In the gray image, a pixel is:
-# - 0   if contains a wall
-# - 205 if it is unknown
-# - 254 if it is empty
+# Returns a function to determine whether a given (x, y) coordinate in
+# the 'meters' space is outside of a specified buffer around all
+# occupied pixels in the gray room image
 def construct_isValidLocation_function(gray_room_img, xy_to_pixel, robot_buffer, meters_per_pixel, avoid_unknown_regions):
     # Select the occupied areas the robot must avoid
     room_img = gray_room_img.copy()

@@ -1,9 +1,48 @@
+'''
+orthogonal_simplification.py
+
+Provides a method to approximate a closed polygon with a rectilinear polygon,
+based on [1]. An iterative approach is used to find the rectilinear polygon,
+staying within a specified tolerance of the original polygon, that minimizes
+(a) the number of vertices, and (b) the "error" with the original polygon.
+
+This method is very similar to the RegularizeBuildingFootprint method
+provided in arcpy. We implement our own version here because arcpy is a
+paid, Windows-only package.
+
+There are 3 differences from the algorithm described in [1].
+1) The naive algorithm only permits orthogonal lines to start/end close to
+   vertices in the original polygon. However, theere are cases when When there
+   is no single orthogonal line between two vertices that lies within the
+   specified tolerance. In this case, a new vertex is added halfway between the
+   two vertices. This mirrors the behavior of RegularizeBuildingFootprint,
+   though it does not appear to be explicitly described in the paper.
+2) Gribbov uses "integral square difference" as the error metric to minimize.
+   For ease of implementation, we instead say that the error between a line
+   segment and the orthogonal segment approximating it is the maximum distance
+   between the two, scaled by the length of the line segment. In practice,
+   this yields reasonable results. [TODO: actually scale...]
+3) To find the correct orientation, Gribbov proposes rotating the polygon
+   many times, running the approximation algorithm, and selecting the
+   orientation with the lowest penalty. To reduce runtime, we instead find
+   the minimum area rectangle enclosing the polygon and seach for a
+   rectilinear polygon in the directions defined by that rectangle.
+   In practice, this yields reasonable results. 
+
+
+References:
+[1] Alexander Gribov: “Searching for a Compressed Polyline with a Minimum
+      Number of Vertices”, 2015, Searching for a Compressed Polyline with
+      a Minimum Number of Vertices (Discrete Solution), in: Fornes A.,
+      Lamiroy B. (eds) Graphics Recognition. Current Trends and Evolutions.
+      GREC 2017. LNCS, vol 11009. Springer, pp. 54-68, 2018; 
+      http://arxiv.org/abs/1504.06584
+'''
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 from shapely.geometry import Polygon
 from shapely.affinity import rotate
-
-# Work-in-progress implementation of https://arxiv.org/pdf/1504.06584.pdf for orthogonal polygons
 
 NUM_DIR = 4
 RIGHT = 0
@@ -11,9 +50,16 @@ UP    = 1
 LEFT  = 2
 DOWN  = 3
 
+# Construct an orthogonal approximation of a shapely Polygon
+# Input:
+#   input_polygon: shapely Polygon
+#   tolerance:     float, the maximum distance the orthogonal approximation
+#                  can deviate from the original curve
+# Returns: a shapely Polygon
 def construct_orthogonal_polygon(input_polygon, tolerance):
-    # Find minimum bounding box and rotate points
     print("Constructing orthogonal polygon")
+
+    # Find minimum bounding box and rotate points
     bounding_box = input_polygon.minimum_rotated_rectangle
     box_x, box_y = bounding_box.exterior.coords.xy
     delta_x = box_x[1] - box_x[0]
@@ -24,8 +70,8 @@ def construct_orthogonal_polygon(input_polygon, tolerance):
     x = np.array(rotated_input.exterior.coords.xy[0])
     y = np.array(rotated_input.exterior.coords.xy[1])
 
-    # Solve problem
-    orthogonal_polygon, _, _, _, _, _ = simplify_closed_curve(x, y, tolerance)
+    # Get approximation
+    orthogonal_polygon = simplify_closed_curve(x, y, tolerance)
 
     # Clean up polygon
     aligned_orthogonal_polygon = rotate(orthogonal_polygon, -angle, origin = (0,0), use_radians = True)
@@ -35,12 +81,17 @@ def construct_orthogonal_polygon(input_polygon, tolerance):
     return aligned_orthogonal_polygon
 
 
-
+# Construct an orthogonal approximate of a closed polygon
+# Input:
+#   x:          numpy array of x coordinates of vertices
+#   y:          numpy array of y coordinates of vertices
+#   tolerance:  float, maximum distance the approximation can deviate
+# Returns: an orthogonal shapely Polygon
 def simplify_closed_curve(x, y, tolerance):
-    # First guess - unclosed curve
-    segments_needed, integral_error, previous_points, x, y, nearby_points_x, nearby_points_y = simplify_to_orthogonal(x, y, tolerance)
+    # First guess: the curve need not be closed
+    segments_needed, integral_error, previous_points, x, y, nearby_points_x, nearby_points_y = simplify_polygonal_chain(x, y, tolerance)
 
-    # Reconstruct polygon
+    # Reconstruct orthogonal polygon
     neighbors = []
     directions = []
     ortho_points_x = []
@@ -66,7 +117,7 @@ def simplify_closed_curve(x, y, tolerance):
     rolled_x = np.append(rolled_x, rolled_x[0])
     rolled_y = np.roll(y[:-1], -known_idx)
     rolled_y = np.append(rolled_y, rolled_y[0])
-    segments_needed, integral_error, previous_points, x, y, nearby_points_x, nearby_points_y = simplify_to_orthogonal(rolled_x, rolled_y, tolerance, start_neighbor = known_neighbor_idx, start_dir = known_direction)
+    segments_needed, integral_error, previous_points, x, y, nearby_points_x, nearby_points_y = simplify_polygonal_chain(rolled_x, rolled_y, tolerance, start_neighbor = known_neighbor_idx, start_dir = known_direction)
 
     # Reconstruct polygon
     ortho_neighbors = []
@@ -86,10 +137,17 @@ def simplify_closed_curve(x, y, tolerance):
         ortho_points_y.append(nearby_points_y[i - 1][nearby_idx])
 
     ortho_polygon = Polygon(zip(ortho_points_x, ortho_points_y))
-    return ortho_polygon, segments_needed, integral_error, previous_points, nearby_points_x, nearby_points_y
+    return ortho_polygon
 
 
-def simplify_to_orthogonal(x, y, tolerance, start_neighbor = None, start_dir = None):
+# Construct an orthogonal approximation of a polygonal chain
+# Input:
+#   x:              numpy array of x coordinates of vertices
+#   y:              numpy array of y coordinates of vertices
+#   tolerance:      float, maximum distance the approximation can deviate
+#   start_neighbor: ...
+#   start_dir:      ..., currently ignored
+def simplify_polygonal_chain(x, y, tolerance, start_neighbor = None, start_dir = None):
     FRAC_OF_TOLERANCE = 0.2
     GRID_LINES = tolerance * FRAC_OF_TOLERANCE
     NUM_EACH_SIDE = tolerance // (2 * GRID_LINES)
@@ -226,6 +284,7 @@ def simplify_to_orthogonal(x, y, tolerance, start_neighbor = None, start_dir = N
 ######     Helper Methods      ######
 #####################################
 
+# ...
 def get_nearby(x, y, grid_lines, num_each_side):
     center_x = x // grid_lines * grid_lines
     center_y = y // grid_lines * grid_lines
@@ -242,19 +301,10 @@ def get_nearby(x, y, grid_lines, num_each_side):
 
     return(nearby_x, nearby_y)
 
+# Get error between an edge and an approximating vertical/horizontal edge
 def get_error(start_x, start_y, end_x, end_y, direction, approximation):
+    length = math.sqrt((start_x - end_x) ** 2 + (start_y - end_y) ** 2)
     if direction == LEFT or direction == RIGHT:
-        return max((start_y - approximation)**2, (end_y - approximation)**2)
+        return length * max((start_y - approximation)**2, (end_y - approximation)**2)
     else:
-        return max((start_x - approximation)**2, (end_x - approximation)**2)
-
-# Input: 1D arrays
-# Output: best index, # segments, # error
-# Not used right now
-def select_best(segments, error):
-    min_segments = min(segments)
-    candidate_indices = np.where(segments == min_segments)[0]
-    best_candidate_idx = np.argmin(error[candidate_indices])
-    best_idx = candidate_indices[best_candidate_idx]
-
-    return (best_idx, min_segments, error[best_idx])
+        return length * max((start_x - approximation)**2, (end_x - approximation)**2)
