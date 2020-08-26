@@ -25,12 +25,16 @@ ROBOT_WATTAGE = 55      # Power of the UV light in Watts (ie. J/sec)
 # Global parameters
 DISINFECTION_THRESHOLD = 1206 # Joules/meter^2
 
+# Preprocessing parameters. See documentation
+ORTHOGONAL_TOL = 20           # Tolerance for orthogonal simplification, in pixels
+AVOID_UNKNOWN_REGIONS = True  # Treat "unknown" pixels as walls when determining
+                              #  the spaces that the robot can move to
+
 # Algorithm parameters. See documentation for the different variations
 naive_solution = False
 use_strong_visibility = True
 use_strong_distances = True
 scaling_method = 'none' # must be in {'epsilon', 'branch_and_bound', 'none'}
-ORTHOGONAL_TOL = 20     # Tolerance for orthogonal simplification, in pixels
 ROBOT_EPSILON = 0.4     # Size of grid for discretization of possible robot
                         #   locations, in meters
 ROOM_EPSILON = 0.4      # Size of grid for discretization of locations to
@@ -48,7 +52,7 @@ ROOM_EPSILON = 0.4      # Size of grid for discretization of locations to
 print('Extracting polygon')
 polygon, gray_img, xy_to_pixel, meters_per_pixel = extract_polygon(INPUT_FILE, INPUT_YAML, ortho_tolerance = ORTHOGONAL_TOL)
 
-is_valid_location = construct_isValidLocation_function(gray_img, xy_to_pixel, ROBOT_RADIUS, meters_per_pixel)
+is_valid_location = construct_isValidLocation_function(gray_img, xy_to_pixel, ROBOT_RADIUS, meters_per_pixel, AVOID_UNKNOWN_REGIONS)
 
 # Step 2: a Room object contains not only the boundary, but creates a discretized list of places
 #         for the robot to guard (and list of places where the robot can actually move to)

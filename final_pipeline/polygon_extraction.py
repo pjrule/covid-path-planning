@@ -133,10 +133,18 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
 # - 0   if contains a wall
 # - 205 if it is unknown
 # - 254 if it is empty
-def construct_isValidLocation_function(gray, xy_to_pixel, robot_buffer, meters_per_pixel):
-    robot_buffer_pixels = math.ceil(robot_buffer * 1/meters_per_pixel)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(robot_buffer_pixels, robot_buffer_pixels))    
-    expanded_walls = cv2.erode(gray, kernel)
+def construct_isValidLocation_function(gray_room_img, xy_to_pixel, robot_buffer, meters_per_pixel, avoid_unknown_regions):
+    # Select the occupied areas the robot must avoid
+    room_img = gray_room_img.copy()
+    if avoid_unknown_regions:
+        room_img[room_img == 205] = 0
+    room_img[room_img != 0] = 1
+
+    robot_diameter_pixels = math.ceil(2 * robot_buffer * 1/meters_per_pixel)
+    # Force the kernel to have odd size so it is centered exactly on the location
+    if robot_diameter_pixels % 2 == 0: robot_diameter_pixels += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(robot_diameter_pixels, robot_diameter_pixels))    
+    expanded_walls = cv2.erode(room_img, kernel)
 
     def is_valid_location(x, y):
         img_col, img_row = xy_to_pixel(x, y)

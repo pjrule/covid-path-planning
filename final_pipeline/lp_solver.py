@@ -95,7 +95,6 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
     not_visible_room_idx = []
     for room_idx, room_point in enumerate(room.room_grid):
         if room_idx % 50 == 0: print("Processing room index: {}/{}".format(room_idx, room.room_grid.shape[0]))
-        none_visible = True
         for guard_idx, guard_point in enumerate(room.guard_grid):
             if use_strong_visibility:
                 # If a point can see all vertices of a simple polygon,
@@ -111,15 +110,16 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
                 broken_sightlines_list.append((guard_point, room_point))
                 broken_sightlines_count += 1
                 room_intensities[guard_idx, room_idx] = 0
-            else:
-                none_visible = False
 
-        if none_visible:
-            # Ignore this room point - do not guarantee that it is illuminated
-            room_intensities[:, room_idx] = 1
-            not_visible_room_idx.append(room_idx)
-            print('Unreachable Room Point:', room_point)
-
+    # Ignore unreachable room points (do not guarantee that they are illuminated)
+    # All intensities are lower than 'robot_power', so we must spend at least
+    # 'threshold'/'robot_power' time in the solution.
+    # By assigning all unreachable room points a fake intensity of 'robot_power'
+    # everywhere, we guarantee that any solution that covers the reachable
+    # room points will also "cover" the unreachable room points
+    # In other words, the algorithm will ignore the unreachable room points
+    not_visible_room_idx = np.argwhere(np.max(room_intensities, axis = 0) == 0).flatten()
+    room_intensities[:, not_visible_room_idx] = robot_power
     if len(not_visible_room_idx) > 0:
         print('CAUTION: Not all points in the room can be illuminated')
         print('         Red regions will not be disinfected by the robot')
