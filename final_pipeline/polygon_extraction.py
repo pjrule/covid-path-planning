@@ -37,7 +37,7 @@ from orthogonal_simplification import construct_orthogonal_polygon
 #   3. A method to convert (x, y) coordinates in the 'meters' space to (x, y)
 #      coordinates in the 'image pixel' space.
 #   4. A float describing meters per pixel
-def extract_polygon(input_filepath, input_yaml, contour_accuracy = 0, ortho_tolerance = 20):
+def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tolerance = 20):
     raw = imread(input_filepath)
     gray = raw # If input path is png instead of pgm, set equal to: cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY) (TODO: Automate)
 

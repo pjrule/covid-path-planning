@@ -3,6 +3,7 @@ import numpy as np
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+import matplotlib.cm as cm
 from shapely.geometry import box, Point, LineString, Polygon, MultiPolygon
 import shapely.geometry
 from shapely.affinity import scale
@@ -26,7 +27,7 @@ from branch_and_bound import branch_bound_poly
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
 def solve_full_lp(room, robot_height, robot_radius, robot_power, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
-    room_intensities = get_intensities(room, robot_height, robot_radius, robot_power, use_strong_visibility, use_strong_distances)
+    room_intensities, unguarded_room_idx = get_intensities(room, robot_height, robot_radius, robot_power, use_strong_visibility, use_strong_distances)
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
     constraints = [
@@ -46,17 +47,89 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_strong_visi
 
     # TODO: Filter for significant points
 
-    return solution_time, loc_times.value, room_intensities.T
+    return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx
 
-def visualize_times(room, waiting_times):
+def visualize_times(room, waiting_times, unguarded_room_idx):
     ax = plt.axes()
     ax.axis('equal')
-    ax.imshow(room.room_img)
-    ax.plot(*transform(room.xy_to_pixel, room.room).exterior.xy)
 
+    # Plot room (image and polygon)
+    ax.imshow(room.room_img)
+    ax.plot(*transform(room.xy_to_pixel, room.room).exterior.xy, 'black')
+
+    # Plot guard points
     guard_points_x = [room.xy_to_pixel(x, y)[0] for x, y in room.guard_grid]
     guard_points_y = [room.xy_to_pixel(x, y)[1] for x, y in room.guard_grid]
-    ax.scatter(guard_points_x, guard_points_y, s = waiting_times / 10, facecolors = 'none', edgecolors = 'r', alpha = 0.5)
+    ax.scatter(guard_points_x, guard_points_y, s = waiting_times / 10, facecolors = 'none', edgecolors = 'r')
+
+
+    # Plot unguarded regions
+    unguarded = [room.room_cells[i] for i in unguarded_room_idx]
+    for cell in unguarded:
+        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "darkred", alpha = 0.6)
+
+
+    # Plot unenterable regions
+    unenterable = []
+    for i, room_cell in enumerate(room.room_cells):
+        is_visible = False
+        prep_room_cell = prep(room_cell)
+        for guard_pt in room.guard_grid:
+            if prep_room_cell.contains(Point(*guard_pt)):
+                is_visible = True
+                break
+        if not is_visible and i not in unguarded_room_idx:
+            unenterable.append(room_cell)
+
+    for cell in unenterable:
+        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "b", alpha = 0.6)
+
+    plt.show()
+
+def visualize_energy(room, waiting_times, intensities, threshold):
+    ax = plt.axes()
+    ax.axis('equal')
+
+    # Plot room (image and polygon)
+    ax.imshow(room.room_img)
+    ax.plot(*transform(room.xy_to_pixel, room.room).exterior.xy, 'black')
+
+    for i, cell in enumerate(room.room_cells):
+        energy_per_area = intensities[i] @ waiting_times
+        if energy_per_area == threshold:
+            print("EXACTLY THRESHOLD: ", room.room_grid[i])
+            color = cm.YlGnBu(1)
+        elif energy_per_area <= threshold * 1.2:
+            color = cm.YlGnBu(0.75)
+        elif energy_per_area <= threshold * 1.5:
+            color = cm.YlGnBu(0.5)
+        else:
+            color = cm.YlGnBu(0.25)
+        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
+
+    plt.show()
+
+
+def visualize_distance(room, waiting_times, intensities):
+    ax = plt.axes()
+    ax.axis('equal')
+
+    # Plot room (image and polygon)
+    ax.imshow(room.room_img)
+    ax.plot(*transform(room.xy_to_pixel, room.room).exterior.xy, 'black')
+
+
+    # Upper bound on maximum distance between any two points
+    # Used as a heuristic for scaling
+    max_dist = room.room.centroid.hausdorff_distance(room.room)
+
+    for i, cell in enumerate(room.room_cells):
+        disinfection_per_robot_location = np.multiply(intensities[i], waiting_times)
+        distance_per_robot_location = [norm(room.room_grid[i] - robot_loc) for robot_loc in room.guard_grid]
+        avg_dist = np.average(distance_per_robot_location, weights = disinfection_per_robot_location)
+        color = cm.YlGnBu(avg_dist/max_dist)
+        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
+
     plt.show()
 
 
@@ -131,7 +204,7 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
 
     print('Removed', broken_sightlines_count, 'broken sightlines')
     
-    return room_intensities
+    return room_intensities, not_visible_room_idx
 
 
 def get_scale(room, waiting_times, scaling_method):

@@ -3,7 +3,7 @@
 import pandas as pd
 from room import Room
 from polygon_extraction import extract_polygon, construct_isValidLocation_function
-from lp_solver import solve_full_lp, visualize_times, solve_naive
+from lp_solver import solve_full_lp, visualize_times, solve_naive, visualize_energy, visualize_distance
 from shapely.geometry import box
 import matplotlib.pyplot as plt
 from shapely.ops import transform
@@ -17,15 +17,14 @@ INPUT_FILE = '../floor_plans/hrilab_sledbot_twolasers3.pgm'
 INPUT_YAML = '../floor_plans/hrilab_sledbot_twolasers3.yaml'
 OUTPUT_CSV = '../output/waiting_times.csv'
 
-# Robot parameters
-ROBOT_HEIGHT = 1.2192   # Height of UV light, in meters
-ROBOT_RADIUS = 0.4      # Distance from robot center to farthest point, in meters
-ROBOT_WATTAGE = 55      # Power of the UV light in Watts (ie. J/sec)
-
-# Global parameters
+# Environment parameters
+ROBOT_HEIGHT = 1.2192         # Height of UV light, in meters
+ROBOT_RADIUS = 0.4            # Distance from robot center to farthest point,
+                              # in meters
+ROBOT_WATTAGE = 55            # Power of the UV light in Watts (ie. J/sec)
 DISINFECTION_THRESHOLD = 1206 # Joules/meter^2
 
-# Preprocessing parameters. See documentation
+# Preprocessing parameters
 ORTHOGONAL_TOL = 20           # Tolerance for orthogonal simplification, in pixels
 AVOID_UNKNOWN_REGIONS = True  # Treat "unknown" pixels as walls when determining
                               #  the spaces that the robot can move to
@@ -64,7 +63,7 @@ if naive_solution:
 else:
     # Step 3: we generate the LP problem and solve it.
     print('Solving lp')
-    time, waiting_times, intensities = solve_full_lp(room, ROBOT_HEIGHT, ROBOT_RADIUS, ROBOT_WATTAGE, use_strong_visibility, use_strong_distances, scaling_method, DISINFECTION_THRESHOLD)
+    time, waiting_times, intensities, unguarded_room_idx = solve_full_lp(room, ROBOT_HEIGHT, ROBOT_RADIUS, ROBOT_WATTAGE, use_strong_visibility, use_strong_distances, scaling_method, DISINFECTION_THRESHOLD)
 
     # Step 4: Output a solution
     print('Total solution time:', time)
@@ -81,4 +80,6 @@ else:
 
     # Graphical visualizations of the solution
     print('Visualizing solution')
-    visualize_times(room, waiting_times)
+    visualize_times(room, waiting_times, unguarded_room_idx)
+    visualize_energy(room, waiting_times, intensities, DISINFECTION_THRESHOLD)
+    visualize_distance(room, waiting_times, intensities)
