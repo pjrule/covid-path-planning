@@ -64,14 +64,18 @@ def visualize_times(room, waiting_times, unguarded_room_idx):
 
 
     # Plot unguarded regions
-    unguarded = [room.room_cells[i] for i in unguarded_room_idx]
+    unguarded = [room.full_room_cells[i] for i in unguarded_room_idx]
     for cell in unguarded:
-        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "darkred", alpha = 0.6)
-
+        if isinstance(cell, Polygon):
+            ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "darkred", alpha = 0.6)
+        elif isinstance(cell, LineString):
+            ax.fill(*transform(room.xy_to_pixel, cell).xy, "darkred", alpha = 0.6)
+        else:
+            raise Exception("Unable to classify room cell: ", cell)
 
     # Plot unenterable regions
     unenterable = []
-    for i, room_cell in enumerate(room.room_cells):
+    for i, room_cell in enumerate(room.full_room_cells):
         is_visible = False
         prep_room_cell = prep(room_cell)
         for guard_pt in room.guard_grid:
@@ -82,7 +86,12 @@ def visualize_times(room, waiting_times, unguarded_room_idx):
             unenterable.append(room_cell)
 
     for cell in unenterable:
-        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "b", alpha = 0.6)
+        if isinstance(cell, Polygon):
+            ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "b", alpha = 0.6)
+        elif isinstance(cell, LineString):
+            ax.fill(*transform(room.xy_to_pixel, cell).xy, "b", alpha = 0.6)
+        else:
+            raise Exception("Unable to classify room cell: ", cell)
 
     plt.show()
 
@@ -94,10 +103,10 @@ def visualize_energy(room, waiting_times, intensities, threshold):
     ax.imshow(room.room_img)
     ax.plot(*transform(room.xy_to_pixel, room.room).exterior.xy, 'black')
 
-    for i, cell in enumerate(room.room_cells):
+    for i, cell in enumerate(room.full_room_cells):
         energy_per_area = intensities[i] @ waiting_times
         if energy_per_area == threshold:
-            print("EXACTLY THRESHOLD: ", room.room_grid[i])
+            print("EXACTLY THRESHOLD: ", room.full_room_grid[i])
             color = cm.YlGnBu(1)
         elif energy_per_area <= threshold * 1.2:
             color = cm.YlGnBu(0.75)
@@ -105,7 +114,13 @@ def visualize_energy(room, waiting_times, intensities, threshold):
             color = cm.YlGnBu(0.5)
         else:
             color = cm.YlGnBu(0.25)
-        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
+        
+        if isinstance(cell, Polygon):
+            ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
+        elif isinstance(cell, LineString):
+            ax.fill(*transform(room.xy_to_pixel, cell).xy, color = color)
+        else:
+            raise Exception("Unable to classify room cell: ", cell)
 
     plt.show()
 
@@ -123,12 +138,18 @@ def visualize_distance(room, waiting_times, intensities):
     # Used as a heuristic for scaling
     max_dist = room.room.centroid.hausdorff_distance(room.room)
 
-    for i, cell in enumerate(room.room_cells):
+    for i, cell in enumerate(room.full_room_cells):
         disinfection_per_robot_location = np.multiply(intensities[i], waiting_times)
-        distance_per_robot_location = [norm(room.room_grid[i] - robot_loc) for robot_loc in room.guard_grid]
+        distance_per_robot_location = [norm(room.full_room_grid[i] - robot_loc) for robot_loc in room.guard_grid]
         avg_dist = np.average(distance_per_robot_location, weights = disinfection_per_robot_location)
         color = cm.YlGnBu(avg_dist/max_dist)
-        ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
+        
+        if isinstance(cell, Polygon):
+            ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
+        elif isinstance(cell, LineString):
+            ax.fill(*transform(room.xy_to_pixel, cell).xy, color = color)
+        else:
+            raise Exception("Unable to classify room cell: ", cell)
 
     plt.show()
 
@@ -138,21 +159,24 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
     # Construct initial intensities matrix, ignoring visibility
     # *Do* account for inverse distance, angle, and robot shadow
     num_guard_points = room.guard_grid.shape[0]
-    num_room_points = room.room_grid.shape[0]
+    num_room_points = room.full_room_grid.shape[0]
     room_intensities = np.zeros(shape = (num_guard_points, num_room_points))
 
     for guard_idx, guard_pt in enumerate(room.guard_grid):
         if guard_idx % 50 == 0: print("Getting intensity for guard point: {}/{}".format(guard_idx, room.guard_grid.shape[0]))
-        for room_idx, room_pt in enumerate(room.room_grid):
+        for room_idx, room_pt in enumerate(room.full_room_grid):
             if use_strong_distances:
-                room_cell = room.room_cells[room_idx]
+                room_cell = room.full_room_cells[room_idx]
                 distance_2d = Point(guard_pt).hausdorff_distance(room_cell)
                 dist_for_shadow = Point(guard_pt).distance(room_cell) # Shortest distance: worst case scenario
             else:
                 distance_2d = norm(guard_pt - room_pt)
                 dist_for_shadow = distance2d
 
-            angle = np.pi/2 - np.arctan(robot_height/distance_2d)
+            if room.full_room_iswall[room_idx]:
+                angle = np.arctan(robot_height/distance_2d)
+            else:
+                angle = np.pi/2 - np.arctan(robot_height/distance_2d)
 
             # Account for robot shadow
             if dist_for_shadow < robot_radius:
@@ -166,14 +190,21 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
     broken_sightlines_count = 0
     broken_sightlines_list = []
     not_visible_room_idx = []
-    for room_idx, room_point in enumerate(room.room_grid):
-        if room_idx % 50 == 0: print("Processing room index: {}/{}".format(room_idx, room.room_grid.shape[0]))
+    for room_idx, room_point in enumerate(room.full_room_grid):
+        if room_idx % 50 == 0: print("Processing room index: {}/{}".format(room_idx, room.full_room_grid.shape[0]))
         for guard_idx, guard_point in enumerate(room.guard_grid):
             if use_strong_visibility:
                 # If a point can see all vertices of a simple polygon,
                 # then it can see the entire polygon
-                room_cell = room.room_cells[room_idx]
-                room_cell_points = list(room_cell.exterior.coords)
+                room_cell = room.full_room_cells[room_idx]
+
+                if isinstance(room_cell, Polygon): # Floor cell
+                    room_cell_points = list(room_cell.exterior.coords)
+                elif isinstance(room_cell, LineString): # Wall cell
+                    room_cell_points = list(room_cell.coords)
+                else:
+                    raise Exception("Unable to classify room cell: ", room_cell)
+
                 sightlines = [LineString([pt, guard_point]) for pt in room_cell_points]
                 is_visible = all([eps_room.contains(line) for line in sightlines])
             else:
@@ -197,9 +228,16 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
         print('CAUTION: Not all points in the room can be illuminated')
         print('         Red regions will not be disinfected by the robot')
         plt.imshow(room.room_img)
-        for i in not_visible_room_idx:
-            plt.fill(*transform(room.xy_to_pixel, room.room_cells[i]).exterior.coords.xy, 'red')
         plt.plot(*transform(room.xy_to_pixel, room.room).exterior.coords.xy, 'black')
+
+        for i in not_visible_room_idx:
+            if isinstance(room.full_room_cells[i], Polygon):
+                plt.fill(*transform(room.xy_to_pixel, room.full_room_cells[i]).exterior.coords.xy, 'red')
+            elif isinstance(room.full_room_cells[i], LineString):
+                plt.fill(*transform(room.xy_to_pixel, room.full_room_cells[i]).coords.xy, 'red')
+            else:
+                raise Exception("Unable to classify room cell: ", room.full_room_cells[i])
+
         plt.show()
 
     print('Removed', broken_sightlines_count, 'broken sightlines')

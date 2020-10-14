@@ -3,7 +3,7 @@ import numpy as np
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from shapely.geometry import box, Point, LineString, Polygon, MultiPolygon
+from shapely.geometry import box, Point, LineString, MultiLineString, Polygon, MultiPolygon
 from shapely.affinity import scale
 from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
@@ -31,12 +31,23 @@ class Room:
 
         self.room_grid, self.room_cells = self._grid(self.room, room_eps)
         self.guard_grid, self.guard_cells = self._grid(self.guard, guard_eps, is_valid_guard)
+        self.wall_grid, self.wall_cells = self._grid(self.room.exterior, room_eps)
+
+        self.full_room_grid = self.room_grid #np.append(self.room_grid, self.wall_grid, axis = 0)
+        self.full_room_cells = self.room_cells #np.append(self.room_cells, self.wall_cells, axis = 0)
+        self.full_room_iswall = np.full(self.room_cells.shape, False)#np.append(np.full(self.room_cells.shape, False),
+                                #          np.full(self.room_cells.shape, True),
+                                #          axis = 0)
 
         # Visualize all possible robot locations
         plt.imshow(self.room_img)
-        for guard_pt in self.guard_grid:
-            plt.scatter(*self.xy_to_pixel(*guard_pt), color = 'blue')
-        plt.plot(*transform(self.xy_to_pixel, polygon).exterior.xy, color = 'red')
+        #for guard_pt in self.guard_grid:
+        #    plt.scatter(*self.xy_to_pixel(*guard_pt), color = 'blue')
+        #plt.plot(*transform(self.xy_to_pixel, polygon).exterior.xy, color = 'red')
+        for wall_cell in self.wall_cells:
+            plt.plot(*transform(self.xy_to_pixel, wall_cell).xy)
+        #for wall_pt in self.wall_grid:
+        #    plt.scatter(*self.xy_to_pixel(*wall_pt), color = 'blue')
         plt.show()
 
         
@@ -63,7 +74,8 @@ class Room:
                 filtered_points.extend([cell_points[i] for i in range(len(cell_points)) if is_valid(*cell_points[i])])
                 filtered_cells.extend([cells[i]        for i in range(len(cell_points)) if is_valid(*cell_points[i])])
 
-        return np.array(filtered_points), np.array(filtered_cells)
+        return (np.asarray(filtered_points),
+                np.asarray(filtered_cells, dtype = object))
     
     def _get_grid_cell(self, x, y, box_size, geom):
         """Computes a grid cell, the intersection of geom and rectangle centered on (x, y)
@@ -84,20 +96,24 @@ class Room:
         if intersection.is_empty:
             is_in_geom = False
             data = None
-        elif isinstance(intersection, Polygon):
+        elif isinstance(intersection, Polygon) or isinstance(intersection, LineString):
             assert intersection.is_simple, "Increase grid resolution to ensure grid cells are simple polygons"
             is_in_geom = True
             cells = [intersection]
             cell_point_shapely = intersection.representative_point()
             cell_points = [(cell_point_shapely.x, cell_point_shapely.y)]
             data = (cells, cell_points)
-        elif isinstance(intersection, MultiPolygon):
+        elif isinstance(intersection, MultiPolygon) or isinstance(intersection, MultiLineString):
             is_in_geom = True
             cells = list(intersection)
             cell_points_shapely = [cell.representative_point() for cell in cells]
             cell_points = [(point.x, point.y) for point in cell_points_shapely]
             data = (cells, cell_points)
+        #elif isinstance(intersection, LineString):
+        #    is_in_geom = True
+        #    cells = [intersection]
         else:
             # This should never happen...
-            assert(False)
+            raise Exception("Unable to classify intersection: ", intersection)
+
         return is_in_geom, data

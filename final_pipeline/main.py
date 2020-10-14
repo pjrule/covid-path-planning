@@ -13,8 +13,8 @@ from shapely.ops import transform
 ######################
 
 # I/O Files
-INPUT_FILE = '../floor_plans/hrilab_sledbot_twolasers3.pgm'
-INPUT_YAML = '../floor_plans/hrilab_sledbot_twolasers3.yaml'
+INPUT_FILE = '../floor_plans/hrilab_2510_sled.pgm'
+INPUT_YAML = '../floor_plans/hrilab_2510_sled.yaml'
 OUTPUT_CSV = '../output/waiting_times.csv'
 
 # Environment parameters
