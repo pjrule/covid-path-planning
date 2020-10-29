@@ -38,7 +38,6 @@ References:
       GREC 2017. LNCS, vol 11009. Springer, pp. 54-68, 2018; 
       http://arxiv.org/abs/1504.06584
 '''
-import matplotlib.pyplot as plt
 import numpy as np
 import math
 from shapely.geometry import Polygon

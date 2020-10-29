@@ -18,7 +18,7 @@ class Room:
 
     TODO: input geojson instead of polygon (ie. revert to the working code)
     """
-    def __init__(self, polygon, room_img, xy_to_pixel, robot_buffer_meters = 0, is_valid_guard = lambda x, y: True, room_eps=0.5, guard_eps=0.5):
+    def __init__(self, polygon, room_img, xy_to_pixel, robot_buffer_meters = 0, is_valid_guard = lambda x, y: True, room_eps=0.5, guard_eps=0.5, show_visualization = False):
         self.room_eps = room_eps
         self.guard_eps = guard_eps
         self.room = polygon
@@ -39,16 +39,17 @@ class Room:
                                 #          np.full(self.room_cells.shape, True),
                                 #          axis = 0)
 
-        # Visualize all possible robot locations
-        plt.imshow(self.room_img)
-        #for guard_pt in self.guard_grid:
-        #    plt.scatter(*self.xy_to_pixel(*guard_pt), color = 'blue')
-        #plt.plot(*transform(self.xy_to_pixel, polygon).exterior.xy, color = 'red')
-        for wall_cell in self.wall_cells:
-            plt.plot(*transform(self.xy_to_pixel, wall_cell).xy)
-        #for wall_pt in self.wall_grid:
-        #    plt.scatter(*self.xy_to_pixel(*wall_pt), color = 'blue')
-        plt.show()
+        if show_visualization:
+            # Visualize all possible robot locations
+            plt.imshow(self.room_img)
+            #for guard_pt in self.guard_grid:
+            #    plt.scatter(*self.xy_to_pixel(*guard_pt), color = 'blue')
+            #plt.plot(*transform(self.xy_to_pixel, polygon).exterior.xy, color = 'red')
+            for wall_cell in self.wall_cells:
+                plt.plot(*transform(self.xy_to_pixel, wall_cell).xy)
+            #for wall_pt in self.wall_grid:
+            #    plt.scatter(*self.xy_to_pixel(*wall_pt), color = 'blue')
+            plt.show()
 
         
         

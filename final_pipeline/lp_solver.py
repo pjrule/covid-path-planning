@@ -26,8 +26,17 @@ from branch_and_bound import branch_bound_poly
 
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
-def solve_full_lp(room, robot_height, robot_radius, robot_power, use_strong_visibility, use_strong_distances, scaling_method, min_intensity):
-    room_intensities, unguarded_room_idx = get_intensities(room, robot_height, robot_radius, robot_power, use_strong_visibility, use_strong_distances)
+def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everything, use_strong_visibility, use_strong_distances, scaling_method, min_intensity, show_visualization):
+    intensity_tuple = get_intensities(room,
+                                      robot_height,
+                                      robot_radius,
+                                      robot_power,
+                                      use_weak_everything,
+                                      use_strong_visibility,
+                                      use_strong_distances,
+                                      show_visualization)
+    room_intensities, unguarded_room_idx, percent_disinfected = intensity_tuple
+
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
     constraints = [
@@ -47,7 +56,7 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_strong_visi
 
     # TODO: Filter for significant points
 
-    return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx
+    return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx, percent_disinfected
 
 def visualize_times(room, waiting_times, unguarded_room_idx):
     ax = plt.axes()
@@ -65,16 +74,16 @@ def visualize_times(room, waiting_times, unguarded_room_idx):
 
     # Plot unguarded regions
     unguarded = [room.full_room_cells[i] for i in unguarded_room_idx]
-    for cell in unguarded:
-        if isinstance(cell, Polygon):
+    for idx, cell in zip(unguarded_room_idx, unguarded):
+        if room.full_room_iswall[idx] == 0:
             ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "darkred", alpha = 0.6)
-        elif isinstance(cell, LineString):
+        elif room.full_room_iswall[idx] == 1:
             ax.fill(*transform(room.xy_to_pixel, cell).xy, "darkred", alpha = 0.6)
         else:
             raise Exception("Unable to classify room cell: ", cell)
 
     # Plot unenterable regions
-    unenterable = []
+    unenterable_indices = []
     for i, room_cell in enumerate(room.full_room_cells):
         is_visible = False
         prep_room_cell = prep(room_cell)
@@ -83,15 +92,15 @@ def visualize_times(room, waiting_times, unguarded_room_idx):
                 is_visible = True
                 break
         if not is_visible and i not in unguarded_room_idx:
-            unenterable.append(room_cell)
+            unenterable.append(i)
 
-    for cell in unenterable:
-        if isinstance(cell, Polygon):
-            ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, "b", alpha = 0.6)
-        elif isinstance(cell, LineString):
-            ax.fill(*transform(room.xy_to_pixel, cell).xy, "b", alpha = 0.6)
+    for idx in unenterable_indices:
+        if room.full_room_iswall[idx] == 0:
+            ax.fill(*transform(room.xy_to_pixel, room.full_room_cells[idx]).exterior.xy, "b", alpha = 0.6)
+        elif room.full_room_iswall[idx] == 1:
+            ax.fill(*transform(room.xy_to_pixel, room.full_room_cells[idx]).xy, "b", alpha = 0.6)
         else:
-            raise Exception("Unable to classify room cell: ", cell)
+            raise Exception("Unable to classify room cell: ", room.full_room_cells[idx])
 
     plt.show()
 
@@ -115,9 +124,9 @@ def visualize_energy(room, waiting_times, intensities, threshold):
         else:
             color = cm.YlGnBu(0.25)
         
-        if isinstance(cell, Polygon):
+        if room.full_room_iswall[i] == 0:
             ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
-        elif isinstance(cell, LineString):
+        elif room.full_room_iswall[i] == 1:
             ax.fill(*transform(room.xy_to_pixel, cell).xy, color = color)
         else:
             raise Exception("Unable to classify room cell: ", cell)
@@ -144,9 +153,9 @@ def visualize_distance(room, waiting_times, intensities):
         avg_dist = np.average(distance_per_robot_location, weights = disinfection_per_robot_location)
         color = cm.YlGnBu(avg_dist/max_dist)
         
-        if isinstance(cell, Polygon):
+        if room.full_room_iswall[i] == 0:
             ax.fill(*transform(room.xy_to_pixel, cell).exterior.xy, color = color)
-        elif isinstance(cell, LineString):
+        elif room.full_room_iswall[i] == 1:
             ax.fill(*transform(room.xy_to_pixel, cell).xy, color = color)
         else:
             raise Exception("Unable to classify room cell: ", cell)
@@ -155,7 +164,7 @@ def visualize_distance(room, waiting_times, intensities):
 
 
 # Intensity is power transmitted per unit area
-def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_visibility = True, use_strong_distances = True):
+def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_everything = False, use_strong_visibility = True, use_strong_distances = True, show_visualization = True):
     # Construct initial intensities matrix, ignoring visibility
     # *Do* account for inverse distance, angle, and robot shadow
     num_guard_points = room.guard_grid.shape[0]
@@ -165,7 +174,11 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
     for guard_idx, guard_pt in enumerate(room.guard_grid):
         if guard_idx % 50 == 0: print("Getting intensity for guard point: {}/{}".format(guard_idx, room.guard_grid.shape[0]))
         for room_idx, room_pt in enumerate(room.full_room_grid):
-            if use_strong_distances:
+            if use_weak_everything:
+                guard_cell = room.guard_cells[guard_idx]
+                distance_2d = Point(room_pt).distance(guard_cell)
+                dist_for_shadow = Point(room_pt).hausdorff_distance(guard_cell)
+            elif use_strong_distances:
                 room_cell = room.full_room_cells[room_idx]
                 distance_2d = Point(guard_pt).hausdorff_distance(room_cell)
                 dist_for_shadow = Point(guard_pt).distance(room_cell) # Shortest distance: worst case scenario
@@ -174,9 +187,9 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
                 dist_for_shadow = distance2d
 
             if room.full_room_iswall[room_idx]:
-                angle = np.arctan(robot_height/distance_2d)
+                angle = np.pi/2 if distance_2d == 0 else np.arctan(robot_height/distance_2d)
             else:
-                angle = np.pi/2 - np.arctan(robot_height/distance_2d)
+                angle = 0 if distance_2d == 0 else np.pi/2 - np.arctan(robot_height/distance_2d)
 
             # Account for robot shadow
             if dist_for_shadow < robot_radius:
@@ -187,20 +200,41 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
 
     # Patch up visibility.
     eps_room = prep(room.room.buffer(EPS))
+    room_vis_preprocessing = compute_skgeom_visibility_preprocessing(room.room.buffer(EPS))
+
+    # Precompute visibility polygons
+    print("Precomputing visibility polygons")
+    if use_weak_everything:
+        room_visibility = [None]*room.full_room_grid.shape[0]
+        for i, room_pt in enumerate(room.full_room_grid):
+            room_visibility[i] = compute_visibility_polygon(room_vis_preprocessing, room_pt)
+    elif use_strong_visibility:
+        guard_visibility = [None]*room.guard_grid.shape[0]
+        for i, guard_pt in enumerate(room.guard_grid):
+            guard_visibility[i] = compute_visibility_polygon(room_vis_preprocessing, guard_pt)
+    print("Finished Precomputing visibility polygons")
+
     broken_sightlines_count = 0
     broken_sightlines_list = []
     not_visible_room_idx = []
-    for room_idx, room_point in enumerate(room.full_room_grid):
-        if room_idx % 50 == 0: print("Processing room index: {}/{}".format(room_idx, room.full_room_grid.shape[0]))
-        for guard_idx, guard_point in enumerate(room.guard_grid):
-            if use_strong_visibility:
+    for guard_idx, guard_point in enumerate(room.guard_grid):
+
+        if guard_idx % 50 == 0: print("Processing guard index: {}/{}".format(guard_idx, room.guard_grid.shape[0]))
+        for room_idx, room_point in enumerate(room.full_room_grid):
+            if use_weak_everything:
+                # Check that *room* can see at least one point in guard cell
+                room_point_vis = room_visibility[room_idx]
+                guard_cell = room.guard_cells[guard_idx]
+                is_visible = not room_point_vis.intersection(guard_cell).is_empty
+                
+            elif use_strong_visibility:
                 # If a point can see all vertices of a simple polygon,
                 # then it can see the entire polygon
                 room_cell = room.full_room_cells[room_idx]
 
-                if isinstance(room_cell, Polygon): # Floor cell
+                if room.full_room_iswall[room_idx] == 0: # Floor cell
                     room_cell_points = list(room_cell.exterior.coords)
-                elif isinstance(room_cell, LineString): # Wall cell
+                elif room.full_room_iswall[room_idx] == 1: # Wall cell
                     room_cell_points = list(room_cell.coords)
                 else:
                     raise Exception("Unable to classify room cell: ", room_cell)
@@ -227,22 +261,30 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_strong_vi
     if len(not_visible_room_idx) > 0:
         print('CAUTION: Not all points in the room can be illuminated')
         print('         Red regions will not be disinfected by the robot')
-        plt.imshow(room.room_img)
-        plt.plot(*transform(room.xy_to_pixel, room.room).exterior.coords.xy, 'black')
+        if show_visualization:
+            plt.imshow(room.room_img)
+            plt.plot(*transform(room.xy_to_pixel, room.room).exterior.coords.xy, 'black')
 
-        for i in not_visible_room_idx:
-            if isinstance(room.full_room_cells[i], Polygon):
-                plt.fill(*transform(room.xy_to_pixel, room.full_room_cells[i]).exterior.coords.xy, 'red')
-            elif isinstance(room.full_room_cells[i], LineString):
-                plt.fill(*transform(room.xy_to_pixel, room.full_room_cells[i]).coords.xy, 'red')
-            else:
-                raise Exception("Unable to classify room cell: ", room.full_room_cells[i])
-
-        plt.show()
+            for i in not_visible_room_idx:
+                if room.full_room_iswall[i] == 0:
+                    plt.fill(*transform(room.xy_to_pixel, room.full_room_cells[i]).exterior.coords.xy, 'red')
+                elif room.full_room_iswall[i] == 1:
+                    plt.fill(*transform(room.xy_to_pixel, room.full_room_cells[i]).coords.xy, 'red')
+                else:
+                    raise Exception("Unable to classify room cell: ", room.full_room_cells[i])
+    
+            plt.show()
+        
+    area_not_visible        = np.sum([room.full_room_cells[i].area
+                                        for i in not_visible_room_idx])
+    total_area              = room.room.area
+    percent_disinfected = (1 - area_not_visible/total_area) * 100
+    print("Percent of room that can be disinfected: {:.2f}%".format(
+            percent_disinfected))
 
     print('Removed', broken_sightlines_count, 'broken sightlines')
     
-    return room_intensities, not_visible_room_idx
+    return room_intensities, not_visible_room_idx, percent_disinfected
 
 
 def get_scale(room, waiting_times, scaling_method):
@@ -285,7 +327,7 @@ def solve_naive(room, robot_height, min_intensity):
         # NB: I'm not completely sure how the representative_point() method works,
         #     but the scikit-geometry code will fail if this ever returns a vertex
         point = not_covered.representative_point()
-        vis = compute_visibility_polygon(room.room, point).buffer(EPS)
+        vis = compute_visibility_polygon_from_shapely(room.room, point).buffer(EPS)
         to_be_covered = not_covered.intersection(vis)
 
         not_covered = not_covered.difference(vis)
@@ -327,11 +369,10 @@ def plot_multi(room_polygon, multi, solution_points, color = 'r'):
             ax.plot(*poly.exterior.xy, color = color)
     plt.show()
 
-# Find the visibility polygon of a point
-# Inputs and output are shapely objects
-# Converts to scikit-geometry to find visibility intersection
-# Note: this is inefficient for repeated calls on the same shapely polygon
-def compute_visibility_polygon(polygon, point):
+
+# Returns the scikit-geometry RotationalSweepVisibility object and arrangement obejct
+#   associated with the input shapely polygon
+def compute_skgeom_visibility_preprocessing(polygon):
     points_list = list(polygon.exterior.coords) # Includes a repeating point at the end
     xy_segments = [(points_list[i], points_list[i+1]) for i in range(len(points_list) - 1)]
     segments = [Segment2(Point2(x1, y1), Point2(x2, y2)) for ((x1, y1), (x2, y2)) in xy_segments]
@@ -342,9 +383,25 @@ def compute_visibility_polygon(polygon, point):
 
     vs = RotationalSweepVisibility(arr)
 
-    pt = Point2(point.x, point.y)
+    return (vs, arr)
+
+# Find the visibility polygon of a point
+# Input: a scikit-geometry RotationalSweepVisibility object describing the room
+#        a point (x,y)
+# Output: shapely polygon describing the visibility polygon of the point
+def compute_visibility_polygon(skgeom_vis_preprocessing, point):
+    vs, arr = skgeom_vis_preprocessing
+    pt = Point2(point[0], point[1])
     face = arr.find(pt)
     vx = vs.compute_visibility(pt, face)
 
     visibility_polygon_points = [(v.curve().point(0).x(), v.curve().point(0).y()) for v in vx.halfedges]
     return(shapely.geometry.Polygon(visibility_polygon_points))
+
+# Find the visibility polygon of a point
+# Inputs and output are shapely objects
+# Converts to scikit-geometry to find visibility intersection
+# Note: this is inefficient for repeated calls on the same shapely polygon
+def compute_visibility_polygon_from_shapely(polygon, point):
+    skgeom_vis_preprocessing = compute_rotational_sweep(polygon)
+    return(compute_visibility_polygon(skgeom_vis_preprocessing, (point.x, point.y)))
