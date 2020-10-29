@@ -1,6 +1,7 @@
 # Main script to solve the UV Light optimization problem
 
 import pandas as pd
+import numpy as np
 from room import Room
 from polygon_extraction import extract_polygon, construct_isValidLocation_function
 from lp_solver import solve_full_lp, visualize_times, solve_naive, visualize_energy, visualize_distance
@@ -48,11 +49,12 @@ def test_all():
                    '../floor_plans/2530.pgm',
                    '../floor_plans/2540.pgm',
                    '../floor_plans/2560.pgm',
-                   '../floor_plans/2910.pgm']
+                   '../floor_plans/2910.pgm'
+                   ]
     input_yamls = [pgm_file[:-3] + 'yaml' for pgm_file in input_files]
-    algorithm_combinations = [#('Naive', 1, 0, 0, 0, 'none', 0.2),
-                              ('Strong-Visibility', 0, 0, 1, 1, 'none', None),
-                              ('Lower-Bound', 0, 1, 0, 0, 'none', None),
+    algorithm_combinations = [('Naive', 1, 0, 0, 0, 'none', 5.0),
+                              #('Strong-Visibility', 0, 0, 1, 1, 'none', None),
+                              #('Lower-Bound', 0, 1, 0, 0, 'none', None),
                               #('Branch-and-Bound', 0, 0, 0, 0, 'branch_and_bound', None)
                               ]
     epsilons = [1, 0.5, 0.3, 0.2]
@@ -154,7 +156,27 @@ def run_with_parameters(input_file, input_yaml, output_csv, robot_height, robot_
                 show_visualization = show_visualizations)
     
     if naive_solution:
-        solve_naive(room, robot_height, disinfection_threshold)
+        num_repetitions = 100
+        times = []
+        disinfection_percents = []
+
+        i = 0
+        while len(times) < num_repetitions:
+            print(i)
+            i += 1
+            try:
+                time, _, percent_disinfected = solve_naive(
+                                                    room,
+                                                    robot_height,
+                                                    robot_radius,
+                                                    disinfection_threshold)
+                times.append(time)
+                disinfection_percents.append(percent_disinfected)
+            except:
+                pass
+
+        return np.mean(times), np.mean(disinfection_percents)
+
     else:
         # Step 3: we generate the LP problem and solve it.
         print('Solving lp')

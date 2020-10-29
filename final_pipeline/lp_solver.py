@@ -311,7 +311,9 @@ def get_scale(room, waiting_times, scaling_method):
 # Naive solution:
 #   Place a point near the center of the room and illuminate all parts of the room it can see
 #   Repeat the process for the regions that have not yet been covered
-def solve_naive(room, robot_height, min_intensity):
+def solve_naive(room, robot_height, robot_radius, min_intensity):
+    NUM_SOLUTION_POINTS = 10
+
     if not SKGEOM_AVAIL:
         exit('Error: Naive solution is not available (skgeom library could not be loaded)')
 
@@ -323,32 +325,65 @@ def solve_naive(room, robot_height, min_intensity):
     not_covered = room.room
     time = 0
 
-    while not not_covered.is_empty:
-        # NB: I'm not completely sure how the representative_point() method works,
-        #     but the scikit-geometry code will fail if this ever returns a vertex
-        point = not_covered.representative_point()
-        vis = compute_visibility_polygon_from_shapely(room.room, point).buffer(EPS)
-        to_be_covered = not_covered.intersection(vis)
 
-        not_covered = not_covered.difference(vis)
+    # Note: The scikit-geometry code will fail if a candidate solution point is
+    #       every a vertex. This should never happen because we select solution
+    #       points from the guard region
+    vis_preprocessing = compute_skgeom_visibility_preprocessing(room.room)
+    candidate_points = random_points_in_polygon(room.guard, NUM_SOLUTION_POINTS)
+    not_covered = room.room
 
-        max_distance = point.hausdorff_distance(to_be_covered)
-        curr_time = min_intensity * (max_distance**2 + robot_height**2)
-        time += curr_time
-        solution_points.append(point)
-        solution_times.append(curr_time)
+    #for i in range(NUM_SOLUTION_POINTS):
+    for point in candidate_points:
+        if room.guard.intersection(not_covered).is_empty: # Cannot add any more points
+            break
+
+        #point = random_points_in_polygon(room.guard.intersection(not_covered), 1)[0]
+        #point = room.guard.intersection(not_covered).representative_point()
+
+
+        vis = compute_visibility_polygon(vis_preprocessing, (point.x, point.y))
+        to_be_covered = not_covered.intersection(vis).difference(point.buffer(robot_radius))
+        if to_be_covered.is_empty:
+            continue
+        else:
+            not_covered = not_covered.difference(vis)
+            max_distance = point.hausdorff_distance(to_be_covered)
+            curr_time = min_intensity * (max_distance**2 + robot_height**2)
+            time += curr_time
+            solution_points.append(point)
+            solution_times.append(curr_time)
         #plot_multi(room.room, to_be_covered, solution_points, 'orange')
-        plot_multi(room.room, not_covered, solution_points)
+        #plot_multi(room.room, not_covered, solution_points)
     
+    percent_disinfected = (1 - not_covered.area/room.room.area) * 100
     print('Total solution time:', time)
+    print('Area disinfected:', percent_disinfected)
 
-    fig, ax = plt.subplots()
-    ax.set_aspect('equal')
-    ax.plot(*room.room.exterior.xy)
-    ax.scatter([pt.x for pt in solution_points], [pt.y for pt in solution_points], s = np.array(solution_times)/10, facecolors = 'none', edgecolors = 'r')
-    plt.show()
+    #fig, ax = plt.subplots()
+    #ax.set_aspect('equal')
+    #ax.plot(*room.room.exterior.xy)
+    #ax.scatter([pt.x for pt in solution_points], [pt.y for pt in solution_points], s = np.array(solution_times)/10, facecolors = 'none', edgecolors = 'r')
+    #plt.show()
 
-    return time, solution_times
+    # Return a tuple in the form
+    #  (time, waiting_times, intensities, unguarded_room_idx, percent_disinfected)
+    return time, solution_times, percent_disinfected
+
+# Returns an array of 'num_points' random points contained by the shapely
+#   polygon
+def random_points_in_polygon(polygon, num_points):
+    prepared_polygon = prep(polygon)
+    points = []
+    minx, miny, maxx, maxy = polygon.bounds
+
+    while len(points) < num_points:
+        point = Point(np.random.uniform(minx, maxx),
+                      np.random.uniform(miny, maxy))
+        if prepared_polygon.contains(point):
+            points.append(point)
+    
+    return points
 
 # Plot a shapely polygon or multipolygon with matplotlib
 def plot_multi(room_polygon, multi, solution_points, color = 'r'):
