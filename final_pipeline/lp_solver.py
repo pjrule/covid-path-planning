@@ -333,14 +333,9 @@ def solve_naive(room, robot_height, robot_radius, min_intensity):
     candidate_points = random_points_in_polygon(room.guard, NUM_SOLUTION_POINTS)
     not_covered = room.room
 
-    #for i in range(NUM_SOLUTION_POINTS):
     for point in candidate_points:
         if room.guard.intersection(not_covered).is_empty: # Cannot add any more points
             break
-
-        #point = random_points_in_polygon(room.guard.intersection(not_covered), 1)[0]
-        #point = room.guard.intersection(not_covered).representative_point()
-
 
         vis = compute_visibility_polygon(vis_preprocessing, (point.x, point.y))
         to_be_covered = not_covered.intersection(vis).difference(point.buffer(robot_radius))

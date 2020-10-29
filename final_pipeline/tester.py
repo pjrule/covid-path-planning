@@ -160,10 +160,15 @@ def run_with_parameters(input_file, input_yaml, output_csv, robot_height, robot_
         times = []
         disinfection_percents = []
 
-        i = 0
         while len(times) < num_repetitions:
-            print(i)
-            i += 1
+            # Wrap in try-catch due to occasional errors, likely due to
+            #   some random points being invalid
+            #   ex. TopologyException: Input geom 0 is invalid: 
+            #       Self-intersection at or near point
+            #       4.1889694718976234 0.35099414721071531 at
+            #       4.1889694718976234 0.35099414721071531
+            
+            # TODO: Figure out root cause of these errors
             try:
                 time, _, percent_disinfected = solve_naive(
                                                     room,
