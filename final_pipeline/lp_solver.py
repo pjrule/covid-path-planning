@@ -36,7 +36,7 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
                                       use_strong_distances,
                                       show_visualization,
                                       use_shadow)
-    room_intensities, unguarded_room_idx, disinfected_region, percent_disinfected = intensity_tuple
+    room_intensities, unguarded_room_idx = intensity_tuple
 
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
@@ -51,6 +51,12 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
     if prob.status == 'infeasible':
         exit('ERROR: Problem is infeasible')
     
+    disinfected_region, percent_disinfected = calculate_percent_disinfected(
+                                                room,
+                                                loc_times.value,
+                                                use_strong_distances,
+                                                use_weak_everything)
+
     unscaled_time = loc_times.value.sum()
     scale = get_scale(room, disinfected_region, loc_times.value, scaling_method)
     solution_time = scale * unscaled_time
@@ -58,6 +64,40 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
     # TODO: Filter for significant points
 
     return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx, disinfected_region, percent_disinfected
+
+def calculate_percent_disinfected(room, waiting_times, use_strong_distances, use_weak_everything):
+    # If we use strong/weak visibility, we guarantee disinfection in discrete
+    #    grid cells (the epsilon-neighborhoods)
+    if use_strong_distances or use_weak_everything:
+        visible_cells       = [room.full_room_cells[i]
+                               for i in range(room.full_room_cells.shape[0])
+                               if i not in not_visible_room_idx]
+        disinfected_region  = unary_union(visible_cells)
+        
+    # Otherwise, assume we use branch-and-bound to scale up solution
+    else:
+        print("""
+               Note: When calculating percent disinfected, we assume that
+               a branch-and-bound method will be used to scale the solution
+               appropriately.""")
+        # HARDCODED: Ignore points where we wait less than a millisecond
+        vis_preprocessing       = compute_skgeom_visibility_preprocessing(room.room)
+        waiting_points          = [point for i, point in enumerate(room.guard_grid)
+                                   if waiting_times[i] > 1e-3]
+        all_visibility_polygons = [compute_visibility_polygon(vis_preprocessing,
+                                   point) for point in waiting_points]
+        disinfected_region      = shapely.ops.unary_union(all_visibility_polygons)
+
+
+    area_disinfected    = disinfected_region.area
+    total_area          = room.room.area
+    percent_disinfected = (area_disinfected/total_area) * 100
+
+
+    print("Percent of room that can be disinfected: {:.2f}%".format(
+            percent_disinfected))
+
+    return disinfected_region, percent_disinfected
 
 def visualize_times(room, waiting_times, unguarded_room_idx):
     ax = plt.axes()
@@ -256,8 +296,6 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
     # everywhere, we guarantee that any solution that covers the reachable
     # room points will also "cover" the unreachable room points
     # In other words, the algorithm will ignore the unreachable room points
-
-
     not_visible_room_idx = np.argwhere(np.max(room_intensities, axis = 0) == 0).flatten()
     room_intensities[:, not_visible_room_idx] = robot_power
     if len(not_visible_room_idx) > 0:
@@ -278,36 +316,9 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
                     raise Exception("Unable to classify room cell: ", room.full_room_cells[i])
             plt.show()
 
-    # If we use strong/weak visibility, we guarantee disinfection in discrete
-    #    grid cells (the epsilon-neighborhoods)
-    if use_strong_distances or use_weak_everything:
-        visible_cells       = [room.full_room_cells[i]
-                               for i in range(room.full_room_cells.shape[0])
-                               if i not in not_visible_room_idx]
-        disinfected_region  = unary_union(visible_cells)
-    # Otherwise, assume we use branch-and-bound to scale up
-    # In this case, any region than can be seen from the guard grid will
-    # be disinfected
-    else:
-        print("""Note: When calculating percent disinfected, we assume that\n
-               a branch-and-bound method will be used to scale the solution\n
-               appropriately.""")
-        vis_preprocessing = compute_skgeom_visibility_preprocessing(room.room)
-        all_visibility_polygons = [compute_visibility_polygon(vis_preprocessing,
-                                   (x, y)) for x, y in room.guard_grid]
-        disinfected_region = shapely.ops.unary_union(all_visibility_polygons)
-
-
-    area_disinfected    = disinfected_region.area
-    total_area          = room.room.area
-    percent_disinfected = (area_disinfected/total_area) * 100
-
-
-    print("Percent of room that can be disinfected: {:.2f}%".format(
-            percent_disinfected))
-    print('Removed', broken_sightlines_count, 'broken sightlines')
     
-    return room_intensities, not_visible_room_idx, disinfected_region, percent_disinfected
+    print('Removed', broken_sightlines_count, 'broken sightlines')
+    return room_intensities, not_visible_room_idx
 
 
 # Note: disinfection_region is a shapely object (I *think* either a Polygon
