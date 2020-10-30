@@ -12,7 +12,7 @@ from scipy.spatial import distance_matrix
 from matplotlib.animation import FuncAnimation
 from numpy.linalg import norm
 from sys import exit
-from shapely.ops import transform
+from shapely.ops import transform, unary_union
 
 # Try to load skgeom package (for naive solution)
 SKGEOM_AVAIL = False
@@ -26,7 +26,7 @@ from branch_and_bound import branch_bound_poly
 
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
-def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everything, use_strong_visibility, use_strong_distances, scaling_method, min_intensity, show_visualization):
+def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everything, use_strong_visibility, use_strong_distances, scaling_method, min_intensity, show_visualization, use_shadow):
     intensity_tuple = get_intensities(room,
                                       robot_height,
                                       robot_radius,
@@ -34,8 +34,9 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
                                       use_weak_everything,
                                       use_strong_visibility,
                                       use_strong_distances,
-                                      show_visualization)
-    room_intensities, unguarded_room_idx, percent_disinfected = intensity_tuple
+                                      show_visualization,
+                                      use_shadow)
+    room_intensities, unguarded_room_idx, disinfected_region, percent_disinfected = intensity_tuple
 
     loc_times = cp.Variable(room.guard_grid.shape[0])
     obj = cp.Minimize(cp.sum(loc_times))
@@ -51,12 +52,12 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
         exit('ERROR: Problem is infeasible')
     
     unscaled_time = loc_times.value.sum()
-    scale = get_scale(room, loc_times.value, scaling_method)
+    scale = get_scale(room, disinfected_region, loc_times.value, scaling_method)
     solution_time = scale * unscaled_time
 
     # TODO: Filter for significant points
 
-    return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx, percent_disinfected
+    return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx, disinfected_region, percent_disinfected
 
 def visualize_times(room, waiting_times, unguarded_room_idx):
     ax = plt.axes()
@@ -164,7 +165,7 @@ def visualize_distance(room, waiting_times, intensities):
 
 
 # Intensity is power transmitted per unit area
-def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_everything = False, use_strong_visibility = True, use_strong_distances = True, show_visualization = True):
+def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_everything = False, use_strong_visibility = True, use_strong_distances = True, show_visualization = True, use_shadow = True):
     # Construct initial intensities matrix, ignoring visibility
     # *Do* account for inverse distance, angle, and robot shadow
     num_guard_points = room.guard_grid.shape[0]
@@ -184,7 +185,7 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
                 dist_for_shadow = Point(guard_pt).distance(room_cell) # Shortest distance: worst case scenario
             else:
                 distance_2d = norm(guard_pt - room_pt)
-                dist_for_shadow = distance2d
+                dist_for_shadow = distance_2d
 
             if room.full_room_iswall[room_idx]:
                 angle = np.pi/2 if distance_2d == 0 else np.arctan(robot_height/distance_2d)
@@ -192,7 +193,7 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
                 angle = 0 if distance_2d == 0 else np.pi/2 - np.arctan(robot_height/distance_2d)
 
             # Account for robot shadow
-            if dist_for_shadow < robot_radius:
+            if use_shadow and dist_for_shadow < robot_radius:
                 room_intensities[guard_idx, room_idx] = 0
             else:
                 # Energy received follows an inverse-square law and Lambert's cosine law
@@ -218,7 +219,6 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
     broken_sightlines_list = []
     not_visible_room_idx = []
     for guard_idx, guard_point in enumerate(room.guard_grid):
-
         if guard_idx % 50 == 0: print("Processing guard index: {}/{}".format(guard_idx, room.guard_grid.shape[0]))
         for room_idx, room_point in enumerate(room.full_room_grid):
             if use_weak_everything:
@@ -256,11 +256,15 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
     # everywhere, we guarantee that any solution that covers the reachable
     # room points will also "cover" the unreachable room points
     # In other words, the algorithm will ignore the unreachable room points
+
+
     not_visible_room_idx = np.argwhere(np.max(room_intensities, axis = 0) == 0).flatten()
     room_intensities[:, not_visible_room_idx] = robot_power
     if len(not_visible_room_idx) > 0:
         print('CAUTION: Not all points in the room can be illuminated')
         print('         Red regions will not be disinfected by the robot')
+        print('(Visualization assume "strong distance" algorithm is used:')
+        print(' the "branch-and-bound" algorithm will disinfect slightly more.)')
         if show_visualization:
             plt.imshow(room.room_img)
             plt.plot(*transform(room.xy_to_pixel, room.room).exterior.coords.xy, 'black')
@@ -272,22 +276,44 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
                     plt.fill(*transform(room.xy_to_pixel, room.full_room_cells[i]).coords.xy, 'red')
                 else:
                     raise Exception("Unable to classify room cell: ", room.full_room_cells[i])
-    
             plt.show()
-        
-    area_not_visible        = np.sum([room.full_room_cells[i].area
-                                        for i in not_visible_room_idx])
-    total_area              = room.room.area
-    percent_disinfected = (1 - area_not_visible/total_area) * 100
+
+    # If we use strong/weak visibility, we guarantee disinfection in discrete
+    #    grid cells (the epsilon-neighborhoods)
+    if use_strong_distances or use_weak_everything:
+        visible_cells       = [room.full_room_cells[i]
+                               for i in range(room.full_room_cells.shape[0])
+                               if i not in not_visible_room_idx]
+        disinfected_region  = unary_union(visible_cells)
+    # Otherwise, assume we use branch-and-bound to scale up
+    # In this case, any region than can be seen from the guard grid will
+    # be disinfected
+    else:
+        print("""Note: When calculating percent disinfected, we assume that\n
+               a branch-and-bound method will be used to scale the solution\n
+               appropriately.""")
+        vis_preprocessing = compute_skgeom_visibility_preprocessing(room.room)
+        all_visibility_polygons = [compute_visibility_polygon(vis_preprocessing,
+                                   (x, y)) for x, y in room.guard_grid]
+        disinfected_region = shapely.ops.unary_union(all_visibility_polygons)
+
+
+    area_disinfected    = disinfected_region.area
+    total_area          = room.room.area
+    percent_disinfected = (area_disinfected/total_area) * 100
+
+
     print("Percent of room that can be disinfected: {:.2f}%".format(
             percent_disinfected))
-
     print('Removed', broken_sightlines_count, 'broken sightlines')
     
-    return room_intensities, not_visible_room_idx, percent_disinfected
+    return room_intensities, not_visible_room_idx, disinfected_region, percent_disinfected
 
 
-def get_scale(room, waiting_times, scaling_method):
+# Note: disinfection_region is a shapely object (I *think* either a Polygon
+#       or Multipolygon) representing the region that we guarantee receives
+#       at least some illumination
+def get_scale(room, disinfected_region, waiting_times, scaling_method):
     if scaling_method == 'epsilon':
         print('ERROR: Epsilon scaling not currently supported. Need to convert epsilon to units of robot height')
         return None
@@ -311,7 +337,7 @@ def get_scale(room, waiting_times, scaling_method):
 # Naive solution:
 #   Place a point near the center of the room and illuminate all parts of the room it can see
 #   Repeat the process for the regions that have not yet been covered
-def solve_naive(room, robot_height, robot_radius, min_intensity):
+def solve_naive(room, robot_height, robot_radius, min_intensity, use_shadow):
     NUM_SOLUTION_POINTS = 10
 
     if not SKGEOM_AVAIL:
@@ -338,7 +364,10 @@ def solve_naive(room, robot_height, robot_radius, min_intensity):
             break
 
         vis = compute_visibility_polygon(vis_preprocessing, (point.x, point.y))
-        to_be_covered = not_covered.intersection(vis).difference(point.buffer(robot_radius))
+        to_be_covered = not_covered.intersection(vis)
+        if use_shadow:
+            to_be_covered = to_be_covered.difference(point.buffer(robot_radius))
+
         if to_be_covered.is_empty:
             continue
         else:

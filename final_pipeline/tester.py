@@ -45,26 +45,28 @@ AVOID_UNKNOWN_REGIONS = True  # Treat "unknown" pixels as walls when determining
 
 def test_all():
     input_files = ['../floor_plans/hrilab_sledbot_twolasers3.pgm',
-                   '../floor_plans/2510_centeroffice.pgm',
-                   '../floor_plans/2530.pgm',
-                   '../floor_plans/2540.pgm',
-                   '../floor_plans/2560.pgm',
-                   '../floor_plans/2910.pgm'
+                   #'../floor_plans/2510_centeroffice.pgm',
+                   #'../floor_plans/2530.pgm',
+                   #'../floor_plans/2540.pgm',
+                   #'../floor_plans/2560.pgm',
+                   #'../floor_plans/2910.pgm'
                    ]
     input_yamls = [pgm_file[:-3] + 'yaml' for pgm_file in input_files]
-    algorithm_combinations = [('Naive', 1, 0, 0, 0, 'none', 5.0),
+    algorithm_combinations = [#('Naive', 1, 0, 0, 0, 'none', 5.0),
                               #('Strong-Visibility', 0, 0, 1, 1, 'none', None),
                               #('Lower-Bound', 0, 1, 0, 0, 'none', None),
+                              ('Branch-and-Bound-Fake', 0, 0, 0, 0, 'none', None),
                               #('Branch-and-Bound', 0, 0, 0, 0, 'branch_and_bound', None)
                               ]
     epsilons = [1, 0.5, 0.3, 0.2]
+    use_shadow = True
 
-    test_from_list(input_files, input_yamls, algorithm_combinations, epsilons)
+    test_from_list(input_files, input_yamls, algorithm_combinations, epsilons, use_shadow)
 
 # algorithm_combinations is a list of tuples representing:
 #    (name, naive_solution, use_weak_everything, use_strong_visibility,
 #     use_strong_distances, scaling_method, run_with_only_this_epsilon)
-def test_from_list(input_files, input_yamls, algorithm_combinations, epsilons):
+def test_from_list(input_files, input_yamls, algorithm_combinations, epsilons, use_shadow):
     SHOW_VISULIZATIONS = False
 
     output_to_print = "File, Algorithm, Epsilon, Solution Time, Solution Disinfection Percent\n"
@@ -81,8 +83,9 @@ def test_from_list(input_files, input_yamls, algorithm_combinations, epsilons):
             for epsilon in run_with_epsilons:
                 # TODO: Actually grab real name of input in general case...
                 #       as opposed to assuming format ../floor_plans/NAME.png
-                output_file = "{}/WaitingTimes_{}_{}-{}.csv".format(
-                        OUTPUT_FOLDER, input_file[15:-4], name, epsilon)
+                output_file = "{}/WaitingTimes_{}_{}_{}-{}.csv".format(
+                        OUTPUT_FOLDER, 'NoShadow' if not use_shadow else 'WithShadow',
+                        input_file[15:-4], name, epsilon)
                 print("-"*80)
                 print("CURRENTLY RUNNING:", output_file)
                 print("-"*80)
@@ -104,7 +107,8 @@ def test_from_list(input_files, input_yamls, algorithm_combinations, epsilons):
                                     scaling_method,
                                     epsilon,
                                     epsilon,
-                                    SHOW_VISULIZATIONS)
+                                    SHOW_VISULIZATIONS,
+                                    use_shadow)
                 curr_output = "{}, {}, {}, {}, {}\n".format(
                         input_file, name, epsilon, time, percent_disinfected)
                 output_to_print += curr_output
@@ -125,7 +129,7 @@ def run_with_parameters(input_file, input_yaml, output_csv, robot_height, robot_
                         robot_wattage, disinfection_threshold, orthogonal_tol,
                         avoid_unknown_regions, naive_solution, use_weak_everything,
                         use_strong_visibility, use_strong_distances, scaling_method,
-                        robot_epsilon, room_epsilon, show_visualizations):
+                        robot_epsilon, room_epsilon, show_visualizations, use_shadow):
 
     # Step 1: read input file (pixel-like image) and transform it to a simple polygon
     #         (with clearly marked in/out)
@@ -174,7 +178,8 @@ def run_with_parameters(input_file, input_yaml, output_csv, robot_height, robot_
                                                     room,
                                                     robot_height,
                                                     robot_radius,
-                                                    disinfection_threshold)
+                                                    disinfection_threshold,
+                                                    use_shadow)
                 times.append(time)
                 disinfection_percents.append(percent_disinfected)
             except:
@@ -194,8 +199,9 @@ def run_with_parameters(input_file, input_yaml, output_csv, robot_height, robot_
                                          use_strong_distances,
                                          scaling_method,
                                          disinfection_threshold,
-                                         show_visualizations)
-        time, waiting_times, intensities, unguarded_room_idx, percent_disinfected = lp_solution_data
+                                         show_visualizations,
+                                         use_shadow)
+        time, waiting_times, intensities, unguarded_room_idx, disinfected_region, percent_disinfected = lp_solution_data
     
         # Step 4: Output a solution
         print('Total solution time:', time)
