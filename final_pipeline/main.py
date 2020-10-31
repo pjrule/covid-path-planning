@@ -14,8 +14,10 @@ import sys
 ######################
 
 # I/O Files
-INPUT_FILE = '../floor_plans/hrilab_2510_sled.pgm'
-INPUT_YAML = '../floor_plans/hrilab_2510_sled.yaml'
+#INPUT_FILE = '../floor_plans/hrilab_2510_sled.pgm'
+#INPUT_YAML = '../floor_plans/hrilab_2510_sled.yaml'
+INPUT_FILE = '../floor_plans/2560.pgm'
+INPUT_YAML = '../floor_plans/2560.yaml'
 OUTPUT_CSV = '../output/waiting_times.csv'
 
 # Environment parameters
@@ -35,12 +37,13 @@ naive_solution = False
 use_weak_everything = False # Compute a lower bound on the time for a solution
                             # Overrides use_strong_visibility and use_strong_distances
 use_strong_visibility = True
-use_strong_distances = True
-scaling_method = 'none'     # must be in {'epsilon', 'branch_and_bound', 'none'}
+use_strong_distances = False
+use_shadow = False
+scaling_method = 'branch_and_bound'     # must be in {'epsilon', 'branch_and_bound', 'none'}
 
-ROBOT_EPSILON = 0.3     # Size of grid for discretization of possible robot
+ROBOT_EPSILON = 0.2     # Size of grid for discretization of possible robot
                         #   locations, in meters
-ROOM_EPSILON = 0.3      # Size of grid for discretization of locations to
+ROOM_EPSILON = 0.2      # Size of grid for discretization of locations to
                         #   disinfect, in meters
                         # Smaller epsilon values guarantee that we find a
                         #   solution closer to optimal, assuming infinite speed
@@ -94,8 +97,9 @@ else:
                                      use_strong_distances,
                                      scaling_method,
                                      DISINFECTION_THRESHOLD,
-                                     show_visualizations)
-    time, waiting_times, intensities, unguarded_room_idx, percent_disinfected = lp_solution_data
+                                     show_visualizations,
+                                     use_shadow)
+    time, waiting_times, intensities, unguarded_room_idx, _, percent_disinfected = lp_solution_data
 
     # Step 4: Output a solution
     print("-"*80)
