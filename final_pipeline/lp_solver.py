@@ -54,6 +54,7 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
     disinfected_region, percent_disinfected = calculate_percent_disinfected(
                                                 room,
                                                 loc_times.value,
+                                                unguarded_room_idx,
                                                 use_strong_distances,
                                                 use_weak_everything)
 
@@ -65,7 +66,7 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
 
     return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx, disinfected_region, percent_disinfected
 
-def calculate_percent_disinfected(room, waiting_times, use_strong_distances, use_weak_everything):
+def calculate_percent_disinfected(room, waiting_times, not_visible_room_idx, use_strong_distances, use_weak_everything):
     # If we use strong/weak visibility, we guarantee disinfection in discrete
     #    grid cells (the epsilon-neighborhoods)
     if use_strong_distances or use_weak_everything:
@@ -87,6 +88,7 @@ def calculate_percent_disinfected(room, waiting_times, use_strong_distances, use
         all_visibility_polygons = [compute_visibility_polygon(vis_preprocessing,
                                    point) for point in waiting_points]
         disinfected_region      = shapely.ops.unary_union(all_visibility_polygons)
+        #plot_multi(room.room, disinfected_region, [])
 
 
     area_disinfected    = disinfected_region.area
@@ -345,11 +347,50 @@ def get_scale(room, disinfected_region, waiting_times, scaling_method):
 ## Code for naive solution ##
 #############################
 
+
+def solve_naive_single_point(room, robot_height, robot_radius, min_intensity, robot_power, use_shadow):
+    point = room.guard.representative_point()
+    plt.plot(*room.room.exterior.xy)
+    plt.scatter([point.x], [point.y])
+    plt.show()
+    if not room.guard.contains(point):
+        print("Error: Centroid of room is not contained in the guard grid. Returning (0, 0)")
+        return (0,0)
+
+    vis_preprocessing = compute_skgeom_visibility_preprocessing(room.room)
+    vis = compute_visibility_polygon(vis_preprocessing, (point.x, point.y))
+    
+    to_be_covered = room.room.intersection(vis)
+    if use_shadow:
+        to_be_covered = to_be_covered.difference(point.buffer(robot_radius))
+    max_distance_2d_floor = point.hausdorff_distance(to_be_covered)
+    max_angle_floor = 0 if max_distance_2d_floor == 0 else np.pi/2 - np.arctan(robot_height/max_distance_2d_floor)
+    
+    walls_to_be_covered = room.room.exterior.intersection(vis)
+    if use_shadow:
+        walls_to_be_covered = walls_to_be_covered.difference(point.buffer(robot_radius))
+    max_distance_2d_walls = point.hausdorff_distance(walls_to_be_covered)
+    max_angle_walls = np.pi/2 if max_distance_2d_walls == 0 else np.arctan(robot_height/max_distance_2d_walls)
+
+    irradiance_per_time_floor = robot_power * np.cos(max_angle_floor) * 1/(4 * np.pi * (max_distance_2d_floor**2 + robot_height**2))
+    irradiance_per_time_walls = robot_power * np.cos(max_angle_walls) * 1/(4 * np.pi * (max_distance_2d_walls**2 + robot_height**2))
+    irradiance_per_time = min(irradiance_per_time_floor, irradiance_per_time_walls)
+    time = min_intensity/irradiance_per_time
+
+    percent_disinfected = (to_be_covered.area/room.room.area) * 100
+
+    print("Time:", time)
+    print("Percent Disinfected:", percent_disinfected)
+
+    return(time, percent_disinfected)
+
+
+
 # Naive solution:
-#   Place a point near the center of the room and illuminate all parts of the room it can see
+#   Place a point at random in the room and illuminate all parts of the room it can see
 #   Repeat the process for the regions that have not yet been covered
 def solve_naive(room, robot_height, robot_radius, min_intensity, use_shadow):
-    NUM_SOLUTION_POINTS = 10
+    ALLOW_FRAC_DISINFECTION = 0.05
 
     if not SKGEOM_AVAIL:
         exit('Error: Naive solution is not available (skgeom library could not be loaded)')
@@ -362,18 +403,15 @@ def solve_naive(room, robot_height, robot_radius, min_intensity, use_shadow):
     not_covered = room.room
     time = 0
 
-
     # Note: The scikit-geometry code will fail if a candidate solution point is
     #       every a vertex. This should never happen because we select solution
     #       points from the guard region
     vis_preprocessing = compute_skgeom_visibility_preprocessing(room.room)
-    candidate_points = random_points_in_polygon(room.guard, NUM_SOLUTION_POINTS)
+    
     not_covered = room.room
 
-    for point in candidate_points:
-        if room.guard.intersection(not_covered).is_empty: # Cannot add any more points
-            break
-
+    while not_covered.area > room.room.area * ALLOW_FRAC_DISINFECTION:
+        point = random_points_in_polygon(room.guard, 1)[0]
         vis = compute_visibility_polygon(vis_preprocessing, (point.x, point.y))
         to_be_covered = not_covered.intersection(vis)
         if use_shadow:
@@ -382,7 +420,7 @@ def solve_naive(room, robot_height, robot_radius, min_intensity, use_shadow):
         if to_be_covered.is_empty:
             continue
         else:
-            not_covered = not_covered.difference(vis)
+            not_covered = not_covered.difference(to_be_covered)
             max_distance = point.hausdorff_distance(to_be_covered)
             curr_time = min_intensity * (max_distance**2 + robot_height**2)
             time += curr_time
@@ -391,6 +429,7 @@ def solve_naive(room, robot_height, robot_radius, min_intensity, use_shadow):
         #plot_multi(room.room, to_be_covered, solution_points, 'orange')
         #plot_multi(room.room, not_covered, solution_points)
     
+    print(not_covered.area > room.room.area * ALLOW_FRAC_DISINFECTION)
     percent_disinfected = (1 - not_covered.area/room.room.area) * 100
     print('Total solution time:', time)
     print('Area disinfected:', percent_disinfected)
@@ -421,7 +460,7 @@ def random_points_in_polygon(polygon, num_points):
     return points
 
 # Plot a shapely polygon or multipolygon with matplotlib
-def plot_multi(room_polygon, multi, solution_points, color = 'r'):
+def plot_multi(room_polygon, multi, solution_points = [], color = 'r'):
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
 

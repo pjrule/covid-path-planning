@@ -87,11 +87,19 @@ def extract_polygon(input_filepath, input_yaml, contour_accuracy = 2, ortho_tole
     orthogonal_poly = construct_orthogonal_polygon(p, ortho_tolerance)
 
 
-    if show_visualization:
+    if True or show_visualization:
         # Display polygon with original image
         fig, ax = plt.subplots(figsize=(4, 8))
-        ax.imshow(gray)
-        ax.plot(*orthogonal_poly.exterior.coords.xy, color='red', linewidth=2)
+        ax.imshow(gray, cmap='gray', vmin=0, vmax=255)
+
+        poly = cv2.approxPolyDP(room_contour, 10, True)
+        p = poly.reshape(poly.shape[0], poly.shape[2])
+        p = np.append(p, [p[0]], axis=0)
+        p = Polygon(p)
+
+        #ax.plot(*p.exterior.coords.xy, color='blue', linewidth=1.5)
+        ax.plot(*orthogonal_poly.exterior.coords.xy, color='red', linewidth=1.5)
+
         ax.axis('equal')
         plt.show()
 

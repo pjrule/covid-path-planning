@@ -26,7 +26,7 @@ ROBOT_WATTAGE = 55            # Power of the UV light in Watts (ie. J/sec)
 DISINFECTION_THRESHOLD = 1206 # Joules/meter^2
 
 # Preprocessing parameters
-ORTHOGONAL_TOL = 20           # Tolerance for orthogonal simplification, in pixels
+ORTHOGONAL_TOL = 40           # Tolerance for orthogonal simplification, in pixels
 AVOID_UNKNOWN_REGIONS = True  # Treat "unknown" pixels as walls when determining
                               #  the spaces that the robot can move to
 

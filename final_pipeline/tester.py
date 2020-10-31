@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from room import Room
 from polygon_extraction import extract_polygon, construct_isValidLocation_function
-from lp_solver import solve_full_lp, visualize_times, solve_naive, visualize_energy, visualize_distance
+from lp_solver import solve_full_lp, visualize_times, solve_naive, solve_naive_single_point, visualize_energy, visualize_distance
 from shapely.geometry import box
 import matplotlib.pyplot as plt
 from shapely.ops import transform
@@ -45,20 +45,20 @@ AVOID_UNKNOWN_REGIONS = True  # Treat "unknown" pixels as walls when determining
 
 def test_all():
     input_files = ['../floor_plans/hrilab_sledbot_twolasers3.pgm',
-                   #'../floor_plans/2510_centeroffice.pgm',
-                   #'../floor_plans/2530.pgm',
-                   #'../floor_plans/2540.pgm',
-                   #'../floor_plans/2560.pgm',
-                   #'../floor_plans/2910.pgm'
+                   '../floor_plans/2510_centeroffice.pgm',
+                   '../floor_plans/2530.pgm',
+                   '../floor_plans/2540.pgm',
+                   '../floor_plans/2560.pgm',
+                   '../floor_plans/2910.pgm'
                    ]
     input_yamls = [pgm_file[:-3] + 'yaml' for pgm_file in input_files]
-    algorithm_combinations = [#('Naive', 1, 0, 0, 0, 'none', 5.0),
+    algorithm_combinations = [('Naive', 1, 0, 0, 0, 'none', 5.0),
                               #('Strong-Visibility', 0, 0, 1, 1, 'none', None),
                               #('Lower-Bound', 0, 1, 0, 0, 'none', None),
-                              ('Branch-and-Bound-Fake', 0, 0, 0, 0, 'none', None),
+                              #('Branch-and-Bound-Fake', 0, 0, 0, 0, 'none', 1),
                               #('Branch-and-Bound', 0, 0, 0, 0, 'branch_and_bound', None)
                               ]
-    epsilons = [1, 0.5, 0.3, 0.2]
+    epsilons = [0.15, 0.075]
     use_shadow = True
 
     test_from_list(input_files, input_yamls, algorithm_combinations, epsilons, use_shadow)
@@ -160,6 +160,9 @@ def run_with_parameters(input_file, input_yaml, output_csv, robot_height, robot_
                 show_visualization = show_visualizations)
     
     if naive_solution:
+        time, disinfection_percent = solve_naive_single_point(room, robot_height, robot_radius, disinfection_threshold, robot_wattage, use_shadow)
+        return time, disinfection_percent
+        '''
         num_repetitions = 100
         times = []
         disinfection_percents = []
@@ -186,6 +189,7 @@ def run_with_parameters(input_file, input_yaml, output_csv, robot_height, robot_
                 pass
 
         return np.mean(times), np.mean(disinfection_percents)
+        '''
 
     else:
         # Step 3: we generate the LP problem and solve it.
