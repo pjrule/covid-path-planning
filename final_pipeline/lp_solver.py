@@ -26,7 +26,17 @@ from branch_and_bound import branch_bound_poly
 
 EPS = 1e-5 # Arbitrary small number to avoid rounding error
 
-def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everything, use_strong_visibility, use_strong_distances, scaling_method, min_intensity, show_visualization, use_shadow):
+def solve_full_lp(room,
+                  robot_height,
+                  robot_radius,
+                  robot_power,
+                  use_weak_everything,
+                  use_strong_visibility,
+                  use_strong_distances,
+                  scaling_method,
+                  min_intensity,
+                  show_visualization,
+                  use_shadow):
     intensity_tuple = get_intensities(room,
                                       robot_height,
                                       robot_radius,
@@ -53,19 +63,21 @@ def solve_full_lp(room, robot_height, robot_radius, robot_power, use_weak_everyt
     
     disinfected_region, percent_disinfected = calculate_percent_disinfected(
                                                 room,
+                                                unguarded_room_idx,
                                                 loc_times.value,
                                                 use_strong_distances,
                                                 use_weak_everything)
 
     unscaled_time = loc_times.value.sum()
-    scale = get_scale(room, disinfected_region, loc_times.value, scaling_method)
+    scale = get_scale(room, min_intensity, disinfected_region, loc_times.value,
+                      scaling_method, robot_power, robot_height, robot_radius, use_shadow)
     solution_time = scale * unscaled_time
 
     # TODO: Filter for significant points
 
     return solution_time, loc_times.value, room_intensities.T, unguarded_room_idx, disinfected_region, percent_disinfected
 
-def calculate_percent_disinfected(room, waiting_times, use_strong_distances, use_weak_everything):
+def calculate_percent_disinfected(room, not_visible_room_idx, waiting_times, use_strong_distances, use_weak_everything):
     # If we use strong/weak visibility, we guarantee disinfection in discrete
     #    grid cells (the epsilon-neighborhoods)
     if use_strong_distances or use_weak_everything:
@@ -86,7 +98,7 @@ def calculate_percent_disinfected(room, waiting_times, use_strong_distances, use
                                    if waiting_times[i] > 1e-3]
         all_visibility_polygons = [compute_visibility_polygon(vis_preprocessing,
                                    point) for point in waiting_points]
-        disinfected_region      = shapely.ops.unary_union(all_visibility_polygons)
+        disinfected_region      = shapely.ops.unary_union(all_visibility_polygons).simplify(0.001)
 
 
     area_disinfected    = disinfected_region.area
@@ -324,14 +336,25 @@ def get_intensities(room, robot_height, robot_radius, robot_power, use_weak_ever
 # Note: disinfection_region is a shapely object (I *think* either a Polygon
 #       or Multipolygon) representing the region that we guarantee receives
 #       at least some illumination
-def get_scale(room, disinfected_region, waiting_times, scaling_method):
+def get_scale(room, min_intensity, disinfected_region, waiting_times, scaling_method,
+              robot_power, robot_height, robot_radius, use_shadow):
     if scaling_method == 'epsilon':
         print('ERROR: Epsilon scaling not currently supported. Need to convert epsilon to units of robot height')
         return None
         scale = (np.sqrt(room.room_eps**2 + 4) + room.room_eps)/(np.sqrt(room.room_eps**2 + 4) - room.room_eps)
     elif scaling_method == 'branch_and_bound':
-        _, lower_bound, _ = branch_bound_poly(room, waiting_times, max_iters = 50)
-        scale = min_intensity/lower_bound
+        full_room = room.room
+        room.room = disinfected_region
+        _, lower_bound, _ = branch_bound_poly(
+            room,
+            waiting_times,
+            robot_height=robot_height,
+            robot_radius=robot_radius,
+            shadow=use_shadow,
+            max_iters=1000
+        )
+        room.room = full_room
+        scale = min_intensity/(robot_power*lower_bound)
     elif scaling_method == 'none':
         scale = 1
     else:
